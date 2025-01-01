@@ -47,10 +47,12 @@ def mask_content(content):
 
     for line in lines:
         if line.startswith("# "):
-            processes_metadata = True
             metadatas["Title"] = line[2:].strip()
             masked_lines.append(line)
             continue
+
+        if line.startswith("##"):
+            processes_metadata = False
 
         if line.startswith("#") or line.startswith("---") or not line.strip():
             masked_lines.append(line)
@@ -64,12 +66,10 @@ def mask_content(content):
                     metadatas[key] = line[prefix:].strip()
                 masked_lines.append(line)
                 continue
-            else:
-                processes_metadata = False
 
         words = line.split()
         masked_words = [
-            "\_" * len(word) if not processes_metadata and should_mask_word(word) else word for word in words
+            r"\_" * len(word) if not processes_metadata and should_mask_word(word) else word for word in words
         ]
         masked_line = " ".join(masked_words)
 
