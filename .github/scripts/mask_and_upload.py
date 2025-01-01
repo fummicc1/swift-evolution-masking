@@ -4,6 +4,26 @@ import glob
 import os
 import requests
 import random
+import markdown
+from markdown.extensions.codehilite import CodeHiliteExtension
+from markdown.extensions.sane_lists import SaneListExtension
+from markdown.extensions.nl2br import Nl2BrExtension
+from markdown.extensions.fenced_code import FencedCodeExtension
+from markdown.extensions.footnotes import FootnoteExtension
+from markdown.extensions.tables import TableExtension
+
+
+def convert_markdown_to_html(markdown_content):
+    extensions = [
+        CodeHiliteExtension(),
+        SaneListExtension(),
+        Nl2BrExtension(),
+        FencedCodeExtension(),
+        FootnoteExtension(),
+        TableExtension(),
+    ]
+    html_content = markdown.markdown(markdown_content, extensions=extensions)
+    return html_content
 
 
 def should_mask_word(word):
@@ -64,9 +84,11 @@ def upload_to_microcms(proposal_data):
 
     headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
 
+    html_content = convert_markdown_to_html(proposal_data["content"])
+
     microcms_data = {
         "title": proposal_data["title"],
-        "content": proposal_data["content"],
+        "content": html_content,
         "proposalId": proposal_data["proposal_id"],
         "status": proposal_data["status"],
         "authors": proposal_data["authors"],
@@ -80,7 +102,7 @@ def upload_to_microcms(proposal_data):
 
 def main():
     random.seed(42)
-    proposal_files = glob.glob("proposals/*.md")
+    proposal_files = sorted(list(glob.glob("proposals/*.md")))
 
     for file_path in proposal_files:
         try:

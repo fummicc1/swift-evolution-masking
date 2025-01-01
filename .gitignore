@@ -9,3 +9,5 @@ xcuserdata
 
 # Built site content.
 /_site
+
+.venv
