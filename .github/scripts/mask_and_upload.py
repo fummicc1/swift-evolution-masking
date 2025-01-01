@@ -26,8 +26,8 @@ def convert_markdown_to_html(markdown_content):
     return html_content
 
 
-def should_mask_word(word, inside_code_block):
-    if inside_code_block or word.startswith("```"):
+def should_mask_word(word, inside_code_block, processes_metadata):
+    if inside_code_block or word.startswith("```") or processes_metadata:
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
@@ -75,7 +75,7 @@ def mask_content(content):
 
         words = line.split()
         masked_words = [
-            r"\_" * len(word) if should_mask_word(word, inside_code_block) else word
+            r"\_" * len(word) if should_mask_word(word, inside_code_block, processes_metadata) else word
             for word in words
         ]
         masked_line = " ".join(masked_words)
