@@ -110,9 +110,29 @@ def upload_to_microcms(proposal_data):
     response.raise_for_status()
     return response.json()
 
+def preprocess_microcms_data():
+    print("Cleaning up microcms data...")
+    # Delete all proposals in microcms
+    api_key = os.environ["MICROCMS_API_KEY"]
+    domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
+    endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
+
+    headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
+    # First, get all proposals
+    response = requests.get(endpoint, headers=headers)
+    response.raise_for_status()
+    proposals = response.json()["contents"]
+    for proposal in proposals:
+        # Delete each proposal from microcms
+        content_id = proposal["id"]
+        delete_endpoint = f"{endpoint}/{content_id}"
+        response = requests.delete(delete_endpoint, headers=headers)
+        response.raise_for_status()
+    print("Done cleaning up microcms data")
 
 def main():
     random.seed(42)
+    preprocess_microcms_data()
     proposal_files = sorted(list(glob.glob("proposals/*.md")))
 
     for file_path in proposal_files:
