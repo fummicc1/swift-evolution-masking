@@ -73,6 +73,10 @@ def mask_content(content):
         if line.startswith("```"):
             inside_code_block = not inside_code_block
 
+        if inside_code_block:
+            masked_lines.append(line)
+            continue
+
         words = line.split()
         masked_words = [
             r"\_" * len(word) if should_mask_word(word, inside_code_block, processes_metadata) else word
