@@ -26,7 +26,9 @@ def convert_markdown_to_html(markdown_content):
     return html_content
 
 
-def should_mask_word(word):
+def should_mask_word(word, inside_code_block):
+    if inside_code_block or word.startswith("```"):
+        return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
     return random.random() < 0.3
@@ -44,6 +46,7 @@ def mask_content(content):
         "Author": "",
         "Review Manager": "",
     }
+    inside_code_block = False
 
     for line in lines:
         if line.startswith("# "):
@@ -67,9 +70,13 @@ def mask_content(content):
                 masked_lines.append(line)
                 continue
 
+        if line.startswith("```"):
+            inside_code_block = not inside_code_block
+
         words = line.split()
         masked_words = [
-            r"\_" * len(word) if not processes_metadata and should_mask_word(word) else word for word in words
+            r"\_" * len(word) if should_mask_word(word, inside_code_block) else word
+            for word in words
         ]
         masked_line = " ".join(masked_words)
 
