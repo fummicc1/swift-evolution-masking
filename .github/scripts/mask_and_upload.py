@@ -65,7 +65,7 @@ def mask_content(content):
 
         words = line.split()
         masked_words = [
-            "_" * len(word) if should_mask_word(word) else word for word in words
+            "_" * len(word) if not processes_metadata and should_mask_word(word) else word for word in words
         ]
         masked_line = " ".join(masked_words)
 
