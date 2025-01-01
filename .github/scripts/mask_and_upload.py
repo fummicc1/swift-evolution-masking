@@ -39,7 +39,9 @@ def mask_content(content):
     metadatas = {
         "Title": "",
         "Status": "",
+        # Format is inconsistent in the original data
         "Authors": "",
+        "Author": "",
         "Review Manager": "",
     }
 
@@ -57,7 +59,9 @@ def mask_content(content):
         if processes_metadata:
             if any(line[2:].startswith(key) for key in metadatas.keys()):
                 key = line[2:].split(":")[0]
-                metadatas[key] = line[len(key) + 2 :].strip()
+                prefix = len(key) + 2 + 1
+                if prefix < len(line):
+                    metadatas[key] = line[prefix:].strip()
                 masked_lines.append(line)
                 continue
             else:
@@ -117,7 +121,7 @@ def main():
                 "content": masked_content,
                 "proposal_id": proposal_id,
                 "status": metadatas["Status"],
-                "authors": metadatas["Authors"],
+                "authors": metadatas["Authors"] or metadatas["Author"],
                 "review_manager": metadatas["Review Manager"],
             }
 
