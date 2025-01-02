@@ -26,8 +26,8 @@ def convert_markdown_to_html(markdown_content):
     return html_content
 
 
-def should_mask_word(word, inside_code_block, processes_metadata):
-    if inside_code_block or word.startswith("```") or processes_metadata:
+def should_mask_word(word, inside_code_block, inside_inline_code, processes_metadata):
+    if inside_code_block or inside_inline_code or word.startswith("```") or processes_metadata:
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
@@ -47,6 +47,7 @@ def mask_content(content):
         "Review Manager": "",
     }
     inside_code_block = False
+    inside_inline_code = False
 
     for line in lines:
         if line.startswith("# "):
@@ -77,11 +78,21 @@ def mask_content(content):
             masked_lines.append(line)
             continue
 
-        words = line.split()
-        masked_words = [
-            r"\_" * len(word) if should_mask_word(word, inside_code_block, processes_metadata) else word
-            for word in words
-        ]
+        words: list[str] = line.split()
+        masked_words: list[str] = []
+        for word in words:
+            if "`" in word:
+                # If inline code is not closed, we should not mask the word.
+                if word.count("`") % 2 == 1:
+                    inside_inline_code = not inside_inline_code
+                else:
+                    inside_inline_code = False
+
+            if should_mask_word(word, inside_code_block, inside_inline_code, processes_metadata):
+                masked_words.append(r"\_" * len(word))
+            else:
+                masked_words.append(word)
+
         masked_line = " ".join(masked_words)
 
         if line.endswith((" ", "\t")):
