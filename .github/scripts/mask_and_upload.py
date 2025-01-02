@@ -12,6 +12,11 @@ from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
 
+def check_if_word_is_name(word):
+    import en_core_web_sm
+    nlp = en_core_web_sm.load()
+    doc = nlp(word)
+    return any(ent.pos_ == "NOUN" for ent in doc.ents)
 
 def convert_markdown_to_html(markdown_content):
     extensions = [
@@ -31,7 +36,9 @@ def should_mask_word(word, inside_code_block, inside_inline_code, inside_hyperli
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
-    return random.random() < 0.2
+    if not check_if_word_is_name(word):
+        return False
+    return random.random() < 0.3
 
 
 def mask_content(content):
