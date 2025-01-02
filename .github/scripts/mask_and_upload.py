@@ -26,8 +26,8 @@ def convert_markdown_to_html(markdown_content):
     return html_content
 
 
-def should_mask_word(word, inside_code_block, inside_inline_code, processes_metadata):
-    if inside_code_block or inside_inline_code or word.startswith("```") or processes_metadata:
+def should_mask_word(word, inside_code_block, inside_inline_code, inside_hyperlink, processes_metadata):
+    if inside_code_block or inside_inline_code or inside_hyperlink or word.startswith("```") or processes_metadata:
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
@@ -47,7 +47,6 @@ def mask_content(content):
         "Review Manager": "",
     }
     inside_code_block = False
-    inside_inline_code = False
 
     for line in lines:
         if line.startswith("# "):
@@ -79,8 +78,15 @@ def mask_content(content):
             continue
 
         words: list[str] = line.split()
+        inside_inline_code = False
+        inside_hyperlink = (False, False, False, False)
         masked_words: list[str] = []
+
         for word in words:
+            
+            if all(inside_hyperlink):
+                inside_hyperlink = (False, False, False, False)
+            
             if "`" in word:
                 # If inline code is not closed, we should not mask the word.
                 if word.count("`") % 2 == 1:
@@ -88,7 +94,24 @@ def mask_content(content):
                 else:
                     inside_inline_code = False
 
-            if should_mask_word(word, inside_code_block, inside_inline_code, processes_metadata):
+            if "[" in word:
+                inside_hyperlink[0] = True
+            if inside_hyperlink[0] and "]" in word:
+                inside_hyperlink[1] = True
+            if inside_hyperlink[1] and "(" in word:
+                inside_hyperlink[2] = True
+            if inside_hyperlink[2] and ")" in word:
+                inside_hyperlink[3] = True
+
+            is_inside_hyperlink = any(inside_hyperlink)
+
+            if should_mask_word(
+                word=word,
+                inside_code_block=inside_code_block,
+                inside_inline_code=inside_inline_code,
+                inside_hyperlink=is_inside_hyperlink,
+                processes_metadata=processes_metadata,
+            ):
                 masked_words.append(r"\_" * len(word))
             else:
                 masked_words.append(word)
