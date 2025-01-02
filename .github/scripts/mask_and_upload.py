@@ -16,7 +16,7 @@ def check_if_word_is_name(word):
     import en_core_web_sm
     nlp = en_core_web_sm.load()
     doc = nlp(word)
-    return any(ent.pos_ == "NOUN" for ent in doc.ents)
+    return any(ent.pos_ == "NOUN" for ent in doc)
 
 def convert_markdown_to_html(markdown_content):
     extensions = [
@@ -123,7 +123,7 @@ def mask_content(content):
                 inside_hyperlink=is_inside_hyperlink,
                 processes_metadata=processes_metadata,
             ):
-                masked_words.append(r"\_" * len(word))
+                masked_words.append(r"◻︎" * len(word))
             else:
                 masked_words.append(word)
 
