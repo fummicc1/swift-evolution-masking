@@ -123,7 +123,12 @@ def mask_content(content):
                 inside_hyperlink=is_inside_hyperlink,
                 processes_metadata=processes_metadata,
             ):
-                masked_words.append(r"◻︎" * len(word))
+                contains_punctuation = word[-1] in [".", ",", "!", "?", ":", ";", "-", "_", "~", "|", "=", "+", "*", "/", "\\", "@"]
+                if contains_punctuation:
+                    masked_word_and_punctuation = r"◻︎" * (len(word) - 1) + word[-1]
+                    masked_words.append(masked_word_and_punctuation)
+                else:
+                    masked_words.append(r"◻︎" * len(word))
             else:
                 masked_words.append(word)
 
