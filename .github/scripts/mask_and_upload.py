@@ -156,17 +156,18 @@ def preprocess_microcms_data():
     endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
 
     headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
-    # First, get all proposals
-    response = requests.get(endpoint, headers=headers)
-    response.raise_for_status()
-    proposals = response.json()["contents"]
-    for proposal in proposals:
-        # Delete each proposal from microcms
-        content_id = proposal["id"]
-        delete_endpoint = f"{endpoint}/{content_id}"
-        response = requests.delete(delete_endpoint, headers=headers)
+    # First, get all proposals. Iterate over all pages (around 500 contents in total).
+    for _ in range(5):
+        response = requests.get(f"{endpoint}?limit=100", headers=headers)
         response.raise_for_status()
-    print("Done cleaning up microcms data")
+        proposals = response.json()["contents"]
+        for proposal in proposals:
+            # Delete each proposal from microcms
+            content_id = proposal["id"]
+            delete_endpoint = f"{endpoint}/{content_id}"
+            response = requests.delete(delete_endpoint, headers=headers)
+            response.raise_for_status()
+        print("Done cleaning up microcms data")
 
 def main():
     random.seed(42)
