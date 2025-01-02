@@ -167,7 +167,7 @@ def preprocess_microcms_data():
             delete_endpoint = f"{endpoint}/{content_id}"
             response = requests.delete(delete_endpoint, headers=headers)
             response.raise_for_status()
-        print("Done cleaning up microcms data")
+    print("Done cleaning up microcms data")
 
 def main():
     random.seed(42)
