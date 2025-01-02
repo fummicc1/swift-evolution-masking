@@ -78,21 +78,24 @@ def mask_content(content):
             continue
 
         words: list[str] = line.split()
-        inside_inline_code = False
-        inside_hyperlink = (False, False, False, False)
+        inside_inline_code = [False, False]
+        inside_hyperlink = [False, False, False, False]
         masked_words: list[str] = []
 
         for word in words:
             
             if all(inside_hyperlink):
-                inside_hyperlink = (False, False, False, False)
+                inside_hyperlink = [False, False, False, False]
+            
+            if all(inside_inline_code):
+                inside_inline_code = [False, False]
             
             if "`" in word:
                 # If inline code is not closed, we should not mask the word.
-                if word.count("`") % 2 == 1:
-                    inside_inline_code = not inside_inline_code
+                if inside_inline_code[0]:
+                    inside_inline_code[1] = True
                 else:
-                    inside_inline_code = False
+                    inside_inline_code[0] = True
 
             if "[" in word:
                 inside_hyperlink[0] = True
@@ -104,11 +107,12 @@ def mask_content(content):
                 inside_hyperlink[3] = True
 
             is_inside_hyperlink = any(inside_hyperlink)
+            is_inside_inline_code = any(inside_inline_code)
 
             if should_mask_word(
                 word=word,
                 inside_code_block=inside_code_block,
-                inside_inline_code=inside_inline_code,
+                inside_inline_code=is_inside_inline_code,
                 inside_hyperlink=is_inside_hyperlink,
                 processes_metadata=processes_metadata,
             ):
