@@ -31,7 +31,7 @@ def should_mask_word(word, inside_code_block, processes_metadata):
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
-    return random.random() < 0.3
+    return random.random() < 0.2
 
 
 def mask_content(content):
