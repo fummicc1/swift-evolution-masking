@@ -1,4 +1,5 @@
 from collections import Counter
+import os
 from spacy.language import Language
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,4 +44,5 @@ def visualize_histogram(histogram: Counter, write_to_file: bool = False):
     df.plot(kind="bar", x="word", y="frequency")
     plt.show()
     if write_to_file:
+        os.makedirs("artifacts", exist_ok=True)
         plt.savefig("artifacts/word_freq_hist.png")

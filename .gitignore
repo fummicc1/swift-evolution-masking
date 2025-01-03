@@ -11,3 +11,5 @@ xcuserdata
 /_site
 
 .venv
+
+__pycache__
