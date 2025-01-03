@@ -8,36 +8,15 @@ import pandas as pd
 
 def get_histogram_of_words(nlp: Language, markdown_text: str) -> Counter:
     doc = nlp(markdown_text)
-    return Counter(word.text.lower() for word in doc if word.is_alpha)
+    return Counter(word.text.lower() for word in doc if word.is_alpha and word.pos_ == "NOUN")
 
 
 def visualize_histogram(histogram: Counter, write_to_file: bool = False):
-    common_words = [
-        "the",
-        "is",
-        "in",
-        "to",
-        "of",
-        "and",
-        "a",
-        "that",
-        "it",
-        "with",
-        "as",
-        "but",
-        "if",
-        "or",
-        "because",
-        "until",
-        "while",
-    ]
     df = pd.DataFrame(histogram.items(), columns=["word", "frequency"])
-    # Remove common words to focus on the terms.
-    df = df[~df["word"].isin(common_words)]
     df = df.sort_values(by="frequency", ascending=False)
     # Only show the top 100 words.
     df = df.head(100)
-    df.plot(kind="bar", x="word", y="frequency", figsize=(20, 10))
+    df.plot(kind="bar", x="word", y="frequency", figsize=(20, 15))
     plt.show()
     if write_to_file:
         os.makedirs("artifacts", exist_ok=True)
