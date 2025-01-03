@@ -35,7 +35,9 @@ def visualize_histogram(histogram: Counter, write_to_file: bool = False):
     # Remove common words to focus on the terms.
     df = df[~df["word"].isin(common_words)]
     df = df.sort_values(by="frequency", ascending=False)
-    df.plot(kind="bar", x="word", y="frequency")
+    # Only show the top 100 words.
+    df = df.head(100)
+    df.plot(kind="bar", x="word", y="frequency", figsize=(20, 10))
     plt.show()
     if write_to_file:
         os.makedirs("artifacts", exist_ok=True)

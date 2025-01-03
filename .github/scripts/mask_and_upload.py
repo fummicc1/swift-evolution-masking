@@ -200,7 +200,7 @@ def upload_to_microcms(proposal_data):
 all_proposals = []
 
 
-def delete_proposal(proposal_id: int):
+def delete_proposal(proposal_id: str):
     print(f"Deleting proposal {proposal_id} from microcms...")
     api_key = os.environ["MICROCMS_API_KEY"]
     domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
