@@ -1,4 +1,6 @@
+from collections import Counter
 from datetime import datetime
+import json
 import frontmatter
 import glob
 import os
@@ -12,13 +14,16 @@ from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
 import en_core_web_sm
+from word_freq_hist import get_histogram_of_words, visualize_histogram
 
 nlp = en_core_web_sm.load()
+
 
 def check_if_word_is_name(word):
     global nlp
     doc = nlp(word)
     return any(ent.pos_ == "NOUN" for ent in doc)
+
 
 def convert_markdown_to_html(markdown_content):
     extensions = [
@@ -33,8 +38,16 @@ def convert_markdown_to_html(markdown_content):
     return html_content
 
 
-def should_mask_word(word, inside_code_block, inside_inline_code, inside_hyperlink, processes_metadata):
-    if inside_code_block or inside_inline_code or inside_hyperlink or word.startswith("```") or processes_metadata:
+def should_mask_word(
+    word, inside_code_block, inside_inline_code, inside_hyperlink, processes_metadata
+):
+    if (
+        inside_code_block
+        or inside_inline_code
+        or inside_hyperlink
+        or word.startswith("```")
+        or processes_metadata
+    ):
         return False
     if len(word) <= 2 or not any(c.isalnum() for c in word):
         return False
@@ -92,13 +105,13 @@ def mask_content(content):
         masked_words: list[str] = []
 
         for word in words:
-            
+
             if all(inside_hyperlink):
                 inside_hyperlink = [False, False, False, False]
-            
+
             if all(inside_inline_code):
                 inside_inline_code = [False, False]
-            
+
             if "`" in word:
                 # If inline code is not closed, we should not mask the word.
                 if inside_inline_code[0]:
@@ -125,7 +138,24 @@ def mask_content(content):
                 inside_hyperlink=is_inside_hyperlink,
                 processes_metadata=processes_metadata,
             ):
-                contains_punctuation = word[-1] in [".", ",", "!", "?", ":", ";", "-", "_", "~", "|", "=", "+", "*", "/", "\\", "@"]
+                contains_punctuation = word[-1] in [
+                    ".",
+                    ",",
+                    "!",
+                    "?",
+                    ":",
+                    ";",
+                    "-",
+                    "_",
+                    "~",
+                    "|",
+                    "=",
+                    "+",
+                    "*",
+                    "/",
+                    "\\",
+                    "@",
+                ]
                 if contains_punctuation:
                     masked_word_and_punctuation = r"◻︎" * (len(word) - 1) + word[-1]
                     masked_words.append(masked_word_and_punctuation)
@@ -166,7 +196,9 @@ def upload_to_microcms(proposal_data):
     response.raise_for_status()
     return response.json()
 
+
 all_proposals = []
+
 
 def delete_proposal(proposal_id: int):
     print(f"Deleting proposal {proposal_id} from microcms...")
@@ -176,7 +208,11 @@ def delete_proposal(proposal_id: int):
 
     headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
     try:
-        content_id = list(filter(lambda proposal: proposal["proposalId"] == proposal_id, all_proposals))[0]["id"]
+        content_id = list(
+            filter(
+                lambda proposal: proposal["proposalId"] == proposal_id, all_proposals
+            )
+        )[0]["id"]
         delete_endpoint = f"{endpoint}/{content_id}"
         response = requests.delete(delete_endpoint, headers=headers)
         response.raise_for_status()
@@ -184,6 +220,7 @@ def delete_proposal(proposal_id: int):
     except Exception as e:
         # Not raise an error in case the proposal does not exist.
         print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
+
 
 def preprocess_microcms_data():
     print("Fetching all proposals from microcms...")
@@ -201,10 +238,13 @@ def preprocess_microcms_data():
         all_proposals.extend(proposals)
     print("Done fetching all proposals from microcms")
 
+
 def main():
     random.seed(42)
     preprocess_microcms_data()
     proposal_files = sorted(list(glob.glob("proposals/*.md")))
+
+    all_word_freq_hists = Counter()
 
     for file_path in proposal_files:
         try:
@@ -213,6 +253,8 @@ def main():
 
             proposal_id = os.path.basename(file_path).split("-")[0]
             masked_content, metadatas = mask_content(post.content)
+            word_freq_hist = get_histogram_of_words(nlp, post.content)
+            all_word_freq_hists += word_freq_hist
 
             proposal_data = {
                 "title": metadatas["Title"],
@@ -229,6 +271,8 @@ def main():
 
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}")
+
+    visualize_histogram(all_word_freq_hists, write_to_file=True)
 
 
 if __name__ == "__main__":
