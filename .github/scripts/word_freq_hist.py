@@ -28,12 +28,6 @@ def visualize_histogram(histogram: Counter, write_to_file: bool = False):
         "if",
         "or",
         "because",
-        "as",
-        "until",
-        "while",
-        "as",
-        "until",
-        "while",
         "until",
         "while",
     ]
