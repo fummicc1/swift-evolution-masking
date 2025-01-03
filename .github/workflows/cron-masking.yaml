@@ -23,9 +23,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests python-frontmatter markdown pygments spacy
+          pip install requests python-frontmatter markdown pygments spacy matplotlib numpy pandas
           python -m spacy download en_core_web_sm
 
       - name: Process and upload proposals
         run: |
           python .github/scripts/mask_and_upload.py
+
+      - name: Store artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: word_freq_hist
+          path: artifacts/word_freq_hist.png
