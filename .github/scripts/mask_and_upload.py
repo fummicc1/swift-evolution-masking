@@ -11,10 +11,12 @@ from markdown.extensions.nl2br import Nl2BrExtension
 from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
+import en_core_web_sm
+
+nlp = en_core_web_sm.load()
 
 def check_if_word_is_name(word):
-    import en_core_web_sm
-    nlp = en_core_web_sm.load()
+    global nlp
     doc = nlp(word)
     return any(ent.pos_ == "NOUN" for ent in doc)
 
