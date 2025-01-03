@@ -166,8 +166,27 @@ def upload_to_microcms(proposal_data):
     response.raise_for_status()
     return response.json()
 
+all_proposals = []
+
+def delete_proposal(proposal_id: int):
+    print(f"Deleting proposal {proposal_id} from microcms...")
+    api_key = os.environ["MICROCMS_API_KEY"]
+    domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
+    endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
+
+    headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
+    try:
+        content_id = list(filter(lambda proposal: proposal["proposalId"] == proposal_id, all_proposals))[0]["id"]
+        delete_endpoint = f"{endpoint}/{content_id}"
+        response = requests.delete(delete_endpoint, headers=headers)
+        response.raise_for_status()
+        print(f"Successfully deleted proposal {proposal_id} from microcms")
+    except Exception as e:
+        # Not raise an error in case the proposal does not exist.
+        print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
+
 def preprocess_microcms_data():
-    print("Cleaning up microcms data...")
+    print("Fetching all proposals from microcms...")
     # Delete all proposals in microcms
     api_key = os.environ["MICROCMS_API_KEY"]
     domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
@@ -179,13 +198,8 @@ def preprocess_microcms_data():
         response = requests.get(f"{endpoint}?limit=100", headers=headers)
         response.raise_for_status()
         proposals = response.json()["contents"]
-        for proposal in proposals:
-            # Delete each proposal from microcms
-            content_id = proposal["id"]
-            delete_endpoint = f"{endpoint}/{content_id}"
-            response = requests.delete(delete_endpoint, headers=headers)
-            response.raise_for_status()
-    print("Done cleaning up microcms data")
+        all_proposals.extend(proposals)
+    print("Done fetching all proposals from microcms")
 
 def main():
     random.seed(42)
@@ -208,7 +222,8 @@ def main():
                 "authors": metadatas["Authors"] or metadatas["Author"],
                 "review_manager": metadatas["Review Manager"],
             }
-
+            # Before uploading, delete the proposal from microcms if it exists.
+            delete_proposal(proposal_id)
             result = upload_to_microcms(proposal_data)
             print(f"Successfully uploaded proposal {proposal_id}")
 
