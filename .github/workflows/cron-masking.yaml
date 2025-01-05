@@ -38,6 +38,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: word_freq_hist
-          path: |
-            - artifacts/word_freq_hist_top_100.png
-            - artifacts/word_freq_hist.json
+          path: artifacts/
