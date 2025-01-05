@@ -208,14 +208,16 @@ def delete_proposal(proposal_id: str):
 
     headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
     try:
-        content_id = list(
+        contents = list(
             filter(
                 lambda proposal: proposal["proposalId"] == proposal_id, all_proposals
             )
-        )[0]["id"]
-        delete_endpoint = f"{endpoint}/{content_id}"
-        response = requests.delete(delete_endpoint, headers=headers)
-        response.raise_for_status()
+        )
+        for content in contents:
+            content_id = content["id"]
+            delete_endpoint = f"{endpoint}/{content_id}"
+            response = requests.delete(delete_endpoint, headers=headers)
+            response.raise_for_status()
         print(f"Successfully deleted proposal {proposal_id} from microcms")
     except Exception as e:
         # Not raise an error in case the proposal does not exist.
@@ -231,11 +233,13 @@ def preprocess_microcms_data():
 
     headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
     # First, get all proposals. Iterate over all pages (around 500 contents in total).
-    for _ in range(5):
-        response = requests.get(f"{endpoint}?limit=100", headers=headers)
+    offset = 0
+    for _ in range(10):
+        response = requests.get(f"{endpoint}?limit=100&offset={offset}", headers=headers)
         response.raise_for_status()
         proposals = response.json()["contents"]
         all_proposals.extend(proposals)
+        offset += 100
     print("Done fetching all proposals from microcms")
 
 
