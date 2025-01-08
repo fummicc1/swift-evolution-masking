@@ -7,6 +7,7 @@ import os
 import requests
 import random
 import markdown
+import pandas as pd
 from markdown.extensions.codehilite import CodeHiliteExtension
 from markdown.extensions.sane_lists import SaneListExtension
 from markdown.extensions.nl2br import Nl2BrExtension
@@ -14,9 +15,21 @@ from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
 import en_core_web_sm
-from word_freq_hist import get_histogram_of_words, visualize_histogram
+from word_freq_hist import get_histogram_of_words, visualize_histogram_and_return_df
+import boto3
 
 nlp = en_core_web_sm.load()
+
+
+class Answer:
+    proposalId: str
+    index: int
+    answer: str
+
+    def __init__(self, proposalId: str, index: int, answer: str):
+        self.proposalId = proposalId
+        self.index = index
+        self.answer = answer
 
 
 def check_if_word_is_name(word):
@@ -67,6 +80,7 @@ def mask_content(content):
         "Authors": "",
         "Author": "",
         "Review Manager": "",
+        "Answer": [],
     }
     inside_code_block = False
 
@@ -161,6 +175,13 @@ def mask_content(content):
                     masked_words.append(masked_word_and_punctuation)
                 else:
                     masked_words.append(r"◻︎" * len(word))
+                metadatas["Answer"].append(
+                    Answer(
+                        proposalId=metadatas["Title"],
+                        index=len(metadatas["Answer"]),
+                        answer=word,
+                    )
+                )
             else:
                 masked_words.append(word)
 
@@ -235,12 +256,59 @@ def preprocess_microcms_data():
     # First, get all proposals. Iterate over all pages (around 500 contents in total).
     offset = 0
     for _ in range(10):
-        response = requests.get(f"{endpoint}?limit=100&offset={offset}", headers=headers)
+        response = requests.get(
+            f"{endpoint}?limit=100&offset={offset}", headers=headers
+        )
         response.raise_for_status()
         proposals = response.json()["contents"]
         all_proposals.extend(proposals)
         offset += 100
     print("Done fetching all proposals from microcms")
+
+
+def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame):
+    """Upload answers data to Cloudflare R2"""
+    r2 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["R2_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+    )
+
+    # Convert Answer objects to a dictionary with proposalId as keys
+    answers_json = {}
+    for answer in answers_data:
+        if answer.proposalId not in answers_json:
+            answers_json[answer.proposalId] = []
+
+        answers_json[answer.proposalId].append(
+            {"index": answer.index, "answer": answer.answer}
+        )
+    # Upload to R2
+    try:
+        r2.put_object(
+            Bucket=os.environ["R2_BUCKET_NAME"],
+            Key="answers.json",
+            Body=json.dumps(answers_json, ensure_ascii=False, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        print(f"Successfully uploaded answers to R2: answers.json")
+    except Exception as e:
+        print(f"Error uploading answers to R2: {str(e)}")
+
+    # Upload word frequency histogram to R2
+    try:
+        r2.put_object(
+            Bucket=os.environ["R2_BUCKET_NAME"],
+            Key="word_freq_hist.json",
+            Body=word_freq_hist_df.to_json(orient="records").encode("utf-8"),
+            ContentType="application/json",
+        )
+        print(
+            f"Successfully uploaded word frequency histogram to R2: word_freq_hist.json"
+        )
+    except Exception as e:
+        print(f"Error uploading word frequency histogram to R2: {str(e)}")
 
 
 def main():
@@ -249,6 +317,7 @@ def main():
     proposal_files = sorted(list(glob.glob("proposals/*.md")))
 
     all_word_freq_hists = Counter()
+    all_answers = []
 
     for file_path in proposal_files:
         try:
@@ -259,6 +328,7 @@ def main():
             masked_content, metadatas = mask_content(post.content)
             word_freq_hist = get_histogram_of_words(nlp, post.content)
             all_word_freq_hists += word_freq_hist
+            all_answers.extend(metadatas["Answer"])
 
             proposal_data = {
                 "title": metadatas["Title"],
@@ -276,7 +346,12 @@ def main():
         except Exception as e:
             print(f"Error processing {file_path}: {str(e)}")
 
-    visualize_histogram(all_word_freq_hists, write_to_file=True)
+    word_freq_hist_df = visualize_histogram_and_return_df(
+        all_word_freq_hists, write_to_file=True
+    )
+
+    # Upload all answers to R2
+    upload_to_r2(all_answers, word_freq_hist_df)
 
 
 if __name__ == "__main__":
