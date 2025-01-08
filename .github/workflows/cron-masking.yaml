@@ -39,14 +39,21 @@ jobs:
             matplotlib \
             numpy \
             pandas \
-            boto3
+            boto3 \
+            beautifulsoup4
           python -m spacy download en_core_web_sm
+
+      - name: Create artifacts directory
+        run: mkdir -p artifacts
 
       - name: Process and upload proposals
         run: |
           python .github/scripts/mask_and_upload.py
+        env:
+          PYTHONUNBUFFERED: 1
 
       - name: Store artifacts
+        if: always()  # This ensures artifacts are uploaded even if the script fails
         uses: actions/upload-artifact@v4
         with:
           name: word_freq_hist

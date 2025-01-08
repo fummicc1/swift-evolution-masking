@@ -13,3 +13,8 @@ xcuserdata
 .venv
 
 __pycache__
+
+.env
+artifacts/
+__pycache__/
+*.pyc
