@@ -40,7 +40,8 @@ jobs:
             numpy \
             pandas \
             boto3 \
-            beautifulsoup4
+            beautifulsoup4 \
+            python-dotenv
           python -m spacy download en_core_web_sm
 
       - name: Create artifacts directory
