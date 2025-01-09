@@ -19,7 +19,6 @@ def visualize_histogram_and_return_df(
 ) -> pd.DataFrame:
     df = pd.DataFrame(histogram.items(), columns=["word", "frequency"])
     df = df.sort_values(by="frequency", ascending=False)
-    df = df.head(300)
     # Only show the top 100 words on the plot.
     top_df = df.head(100)
     top_df.plot(kind="bar", x="word", y="frequency", figsize=(20, 15))
