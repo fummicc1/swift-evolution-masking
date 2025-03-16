@@ -18,37 +18,69 @@ from markdown.extensions.nl2br import Nl2BrExtension
 from markdown.extensions.fenced_code import FencedCodeExtension
 from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
-import en_core_web_sm
-from word_freq_hist import get_histogram_of_words, visualize_histogram_and_return_df
+import en_core_web_md
+from word_freq_hist import get_histogram_of_words, visualize_histogram_and_return_df, build_word_similarity_map
 import boto3
 from bs4 import BeautifulSoup
+from typing import Dict, List, Set, Tuple, Any
 
 # Load environment variables from .env file if it exists
 env_path = Path(__file__).resolve().parent.parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
 
-nlp = en_core_web_sm.load()
+nlp = en_core_web_md.load()
 
 
 class Answer:
+    """Class representing a masked word answer with options."""
+    
     proposalId: str
     index: int
     answer: str
+    options: list[str]
 
-    def __init__(self, proposalId: str, index: int, answer: str):
+    def __init__(self, proposalId: str, index: int, answer: str, options: list[str] = None):
+        """
+        Initialize an Answer object.
+        
+        Args:
+            proposalId: ID of the proposal
+            index: Index of the answer in the document
+            answer: The actual word that was masked
+            options: List of similar words to serve as options
+        """
         self.proposalId = proposalId
         self.index = index
         self.answer = answer
+        self.options = options or []
 
 
-def check_if_word_is_name(word):
+def check_if_word_is_name(word: str) -> bool:
+    """
+    Check if a word is a noun using spaCy.
+    
+    Args:
+        word: Word to check
+        
+    Returns:
+        True if the word is a noun, False otherwise
+    """
     global nlp
     doc = nlp(word)
     return any(ent.pos_ == "NOUN" for ent in doc)
 
 
-def convert_markdown_to_html(markdown_content):
+def convert_markdown_to_html(markdown_content: str) -> str:
+    """
+    Convert markdown content to HTML.
+    
+    Args:
+        markdown_content: Markdown content to convert
+        
+    Returns:
+        HTML content
+    """
     extensions = [
         CodeHiliteExtension(),
         SaneListExtension(),
@@ -62,8 +94,25 @@ def convert_markdown_to_html(markdown_content):
 
 
 def should_mask_word(
-    word, inside_code_block, inside_inline_code, inside_hyperlink, processes_metadata
-):
+    word: str, 
+    inside_code_block: bool, 
+    inside_inline_code: bool, 
+    inside_hyperlink: bool, 
+    processes_metadata: bool
+) -> bool:
+    """
+    Determine if a word should be masked.
+    
+    Args:
+        word: Word to check
+        inside_code_block: Whether the word is inside a code block
+        inside_inline_code: Whether the word is inside inline code
+        inside_hyperlink: Whether the word is inside a hyperlink
+        processes_metadata: Whether we're processing metadata
+        
+    Returns:
+        True if the word should be masked, False otherwise
+    """
     if (
         inside_code_block
         or inside_inline_code
@@ -79,132 +128,267 @@ def should_mask_word(
     return random.random() < 0.3
 
 
-def mask_content(content: str, proposal_id: str):
-    lines = content.split("\n")
-    masked_lines = []
-    processes_metadata = True
-    metadatas = {
-        "Title": "",
-        "Status": "",
-        # Format is inconsistent in the original data
-        "Authors": "",
-        "Author": "",
-        "Review Manager": "",
-        "Answer": [],
-    }
-    inside_code_block = False
-
-    for line in lines:
+class MarkdownParser:
+    """Class to parse and mask markdown content."""
+    
+    def __init__(self, content: str, proposal_id: str, similarity_map: Dict[str, List[str]] = None):
+        """
+        Initialize the parser.
+        
+        Args:
+            content: Markdown content to parse
+            proposal_id: ID of the proposal
+            similarity_map: Dictionary mapping words to similar words
+        """
+        self.content = content
+        self.proposal_id = proposal_id
+        self.similarity_map = similarity_map
+        self.metadatas = {
+            "Title": "",
+            "Status": "",
+            "Authors": "",
+            "Author": "",
+            "Review Manager": "",
+            "Answer": [],
+        }
+        self.masked_words = []  # Words that will be masked
+        self.lines = content.split("\n")
+        
+    def _update_metadata(self, line: str) -> None:
+        """
+        Update metadata from a line.
+        
+        Args:
+            line: Line to parse for metadata
+        """
         if line.startswith("# "):
-            metadatas["Title"] = line[2:].strip()
-            masked_lines.append(line)
-            continue
-
-        if line.startswith("##"):
-            processes_metadata = False
-
-        if line.startswith("#") or line.startswith("---") or not line.strip():
-            masked_lines.append(line)
-            continue
-
-        if processes_metadata:
-            if any(line[2:].startswith(key) for key in metadatas.keys()):
-                key = line[2:].split(":")[0]
-                prefix = len(key) + 2 + 1
-                if prefix < len(line):
-                    metadatas[key] = line[prefix:].strip()
+            self.metadatas["Title"] = line[2:].strip()
+            return
+            
+        if any(line[2:].startswith(key) for key in self.metadatas.keys()):
+            key = line[2:].split(":")[0]
+            prefix = len(key) + 2 + 1
+            if prefix < len(line):
+                self.metadatas[key] = line[prefix:].strip()
+    
+    def _check_markup_state(self, word: str, state: Dict[str, Any]) -> Tuple[bool, bool]:
+        """
+        Update and check the state of markdown markup elements.
+        
+        Args:
+            word: Current word
+            state: Current state dictionary
+            
+        Returns:
+            Tuple of (is_inside_hyperlink, is_inside_inline_code)
+        """
+        # Reset hyperlink state if complete
+        if all(state["inside_hyperlink"]):
+            state["inside_hyperlink"] = [False, False, False, False]
+            
+        # Reset inline code state if complete
+        if all(state["inside_inline_code"]):
+            state["inside_inline_code"] = [False, False]
+            
+        # Update inline code state
+        if "`" in word:
+            if state["inside_inline_code"][0]:
+                state["inside_inline_code"][1] = True
+            else:
+                state["inside_inline_code"][0] = True
+                
+        # Update hyperlink state
+        if "[" in word:
+            state["inside_hyperlink"][0] = True
+        if state["inside_hyperlink"][0] and "]" in word:
+            state["inside_hyperlink"][1] = True
+        if state["inside_hyperlink"][1] and "(" in word:
+            state["inside_hyperlink"][2] = True
+        if state["inside_hyperlink"][2] and ")" in word:
+            state["inside_hyperlink"][3] = True
+            
+        return any(state["inside_hyperlink"]), any(state["inside_inline_code"])
+    
+    def collect_words_to_mask(self) -> None:
+        """Collect all words that will be masked in the first pass."""
+        inside_code_block = False
+        processes_metadata = True
+        
+        for line in self.lines:
+            if line.startswith("##"):
+                processes_metadata = False
+                
+            if line.startswith("#") or line.startswith("---") or not line.strip():
+                continue
+                
+            if line.startswith("```"):
+                inside_code_block = not inside_code_block
+                
+            if inside_code_block:
+                continue
+                
+            words = line.split()
+            state = {
+                "inside_inline_code": [False, False],
+                "inside_hyperlink": [False, False, False, False]
+            }
+            
+            for word in words:
+                is_inside_hyperlink, is_inside_inline_code = self._check_markup_state(word, state)
+                
+                if should_mask_word(
+                    word=word,
+                    inside_code_block=inside_code_block,
+                    inside_inline_code=is_inside_inline_code,
+                    inside_hyperlink=is_inside_hyperlink,
+                    processes_metadata=processes_metadata,
+                ):
+                    self.masked_words.append(word.lower())
+    
+    def mask_word(self, word: str) -> Tuple[str, bool]:
+        """
+        Mask a word by replacing it with squares.
+        
+        Args:
+            word: Word to mask
+            
+        Returns:
+            Tuple of (masked_word, was_masked)
+        """
+        contains_punctuation = word[-1] in [
+            ".", ",", "!", "?", ":", ";", "-", "_", "~", "|", "=", "+", "*", "/", "\\", "@"
+        ]
+        
+        if contains_punctuation:
+            return r"◻︎" * (len(word) - 1) + word[-1], True
+        else:
+            return r"◻︎" * len(word), True
+    
+    def get_similar_word_options(self, word: str) -> List[str]:
+        """
+        Get similar words as options for a masked word.
+        
+        Args:
+            word: Word to find options for
+            
+        Returns:
+            List of similar words
+        """
+        options = []
+        if self.similarity_map and word.lower() in self.similarity_map:
+            similar_words = self.similarity_map.get(word.lower(), [])
+            if similar_words:
+                # 最も類似度の高い上位3つの単語を選択（ランダムサンプリングしない）
+                options = similar_words[:min(3, len(similar_words))]
+        return options
+    
+    def mask_content(self) -> str:
+        """
+        Mask the content and collect answers.
+        
+        Returns:
+            Masked content as a string
+        """
+        # First collect all words to mask
+        self.collect_words_to_mask()
+        
+        # Second pass to actually mask the content
+        masked_lines = []
+        inside_code_block = False
+        processes_metadata = True
+        
+        for line in self.lines:
+            if line.startswith("# "):
+                self.metadatas["Title"] = line[2:].strip()
                 masked_lines.append(line)
                 continue
-
-        if line.startswith("```"):
-            inside_code_block = not inside_code_block
-
-        if inside_code_block:
-            masked_lines.append(line)
-            continue
-
-        words: list[str] = line.split()
-        inside_inline_code = [False, False]
-        inside_hyperlink = [False, False, False, False]
-        masked_words: list[str] = []
-
-        for word in words:
-
-            if all(inside_hyperlink):
-                inside_hyperlink = [False, False, False, False]
-
-            if all(inside_inline_code):
-                inside_inline_code = [False, False]
-
-            if "`" in word:
-                # If inline code is not closed, we should not mask the word.
-                if inside_inline_code[0]:
-                    inside_inline_code[1] = True
-                else:
-                    inside_inline_code[0] = True
-
-            if "[" in word:
-                inside_hyperlink[0] = True
-            if inside_hyperlink[0] and "]" in word:
-                inside_hyperlink[1] = True
-            if inside_hyperlink[1] and "(" in word:
-                inside_hyperlink[2] = True
-            if inside_hyperlink[2] and ")" in word:
-                inside_hyperlink[3] = True
-
-            is_inside_hyperlink = any(inside_hyperlink)
-            is_inside_inline_code = any(inside_inline_code)
-
-            if should_mask_word(
-                word=word,
-                inside_code_block=inside_code_block,
-                inside_inline_code=is_inside_inline_code,
-                inside_hyperlink=is_inside_hyperlink,
-                processes_metadata=processes_metadata,
-            ):
-                contains_punctuation = word[-1] in [
-                    ".",
-                    ",",
-                    "!",
-                    "?",
-                    ":",
-                    ";",
-                    "-",
-                    "_",
-                    "~",
-                    "|",
-                    "=",
-                    "+",
-                    "*",
-                    "/",
-                    "\\",
-                    "@",
-                ]
-                if contains_punctuation:
-                    masked_word_and_punctuation = r"◻︎" * (len(word) - 1) + word[-1]
-                    masked_words.append(masked_word_and_punctuation)
-                else:
-                    masked_words.append(r"◻︎" * len(word))
-                metadatas["Answer"].append(
-                    Answer(
-                        proposalId=proposal_id,
-                        index=len(metadatas["Answer"]),
-                        answer=word,
+                
+            if line.startswith("##"):
+                processes_metadata = False
+                
+            if line.startswith("#") or line.startswith("---") or not line.strip():
+                masked_lines.append(line)
+                continue
+                
+            if processes_metadata:
+                self._update_metadata(line)
+                if any(line[2:].startswith(key) for key in self.metadatas.keys()):
+                    masked_lines.append(line)
+                    continue
+                    
+            if line.startswith("```"):
+                inside_code_block = not inside_code_block
+                
+            if inside_code_block:
+                masked_lines.append(line)
+                continue
+                
+            words = line.split()
+            state = {
+                "inside_inline_code": [False, False],
+                "inside_hyperlink": [False, False, False, False]
+            }
+            masked_words = []
+            
+            for word in words:
+                is_inside_hyperlink, is_inside_inline_code = self._check_markup_state(word, state)
+                
+                if should_mask_word(
+                    word=word,
+                    inside_code_block=inside_code_block,
+                    inside_inline_code=is_inside_inline_code,
+                    inside_hyperlink=is_inside_hyperlink,
+                    processes_metadata=processes_metadata,
+                ):
+                    masked_word, _ = self.mask_word(word)
+                    masked_words.append(masked_word)
+                    
+                    # Get options for this word
+                    options = self.get_similar_word_options(word)
+                    
+                    # Add to answers
+                    self.metadatas["Answer"].append(
+                        Answer(
+                            proposalId=self.proposal_id,
+                            index=len(self.metadatas["Answer"]),
+                            answer=word,
+                            options=options
+                        )
                     )
-                )
-            else:
-                masked_words.append(word)
+                else:
+                    masked_words.append(word)
+                    
+            masked_line = " ".join(masked_words)
+            
+            # Preserve trailing whitespace
+            if line.endswith((" ", "\t")):
+                masked_line += line[len(line.rstrip()):]
+                
+            masked_lines.append(masked_line)
+            
+        return "\n".join(masked_lines)
+    
+    def get_masked_content_and_metadata(self) -> Tuple[str, Dict]:
+        """
+        Get the masked content and metadata.
+        
+        Returns:
+            Tuple of (masked_content, metadata)
+        """
+        masked_content = self.mask_content()
+        return masked_content, self.metadatas
 
-        masked_line = " ".join(masked_words)
-
-        if line.endswith((" ", "\t")):
-            masked_line += line[len(line.rstrip()) :]
-
-        masked_lines.append(masked_line)
-
-    return "\n".join(masked_lines), metadatas
 
 def simplify_html_structure(html_content: str) -> str:
+    """
+    Simplify complex HTML structure for better compatibility with microCMS.
+    
+    Args:
+        html_content: HTML content to simplify
+        
+    Returns:
+        Simplified HTML content
+    """
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # 1. Split and simplify deeply nested lists
@@ -260,198 +444,333 @@ def simplify_html_structure(html_content: str) -> str:
     return str(soup)
 
 
-def upload_to_microcms(proposal_data):
-    """Upload proposal data to microCMS with retry logic"""
-    max_retries = 3
-    retry_delay = 5  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            api_key = os.environ["MICROCMS_API_KEY"]
-            domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
-            endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
-
-            headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
-
-            html_content = convert_markdown_to_html(proposal_data["content"])
-
-            microcms_data = {
-                "title": proposal_data["title"],
-                "content": html_content,
-                "proposalId": proposal_data["proposal_id"],
-                "status": proposal_data["status"],
-                "authors": proposal_data["authors"],
-                "reviewManager": proposal_data.get("review_manager", ""),
-            }
-
-            print(f"Sending request to microCMS for proposal {proposal_data['proposal_id']} (attempt {attempt + 1}/{max_retries})...")
-            response = requests.post(endpoint, headers=headers, json=microcms_data)
-            
-            if response.status_code == 502:
-                print("Retrying with simplified content due to 502 error")
-                simplified_html = simplify_html_structure(html_content)
-                microcms_data["content"] = simplified_html
-                response = requests.post(endpoint, headers=headers, json=microcms_data)
-            
-            if response.status_code >= 400:
-                print(f"Error response from microCMS: {response.status_code}")
-                print(f"Response content: {response.text}")
-                response.raise_for_status()
-                
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Network error while uploading to microCMS (attempt {attempt + 1}/{max_retries}): {str(e)}")
-            if hasattr(e.response, 'text'):
-                print(f"Response content: {e.response.text}")
-            if attempt < max_retries - 1:
-                print(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
-            else:
-                raise
-        except Exception as e:
-            print(f"Unexpected error while uploading to microCMS: {str(e)}")
-            print("Traceback:")
-            print(traceback.format_exc())
-            raise
-
-
-all_proposals = []
-
-
-def delete_proposal(proposal_id: str):
-    print(f"Deleting proposal {proposal_id} from microcms...")
-    api_key = os.environ["MICROCMS_API_KEY"]
-    domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
-    endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
-
-    headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
-    try:
-        contents = list(
-            filter(
-                lambda proposal: proposal["proposalId"] == proposal_id, all_proposals
+class MicroCMSManager:
+    """Class for managing interactions with microCMS."""
+    
+    def __init__(self):
+        """Initialize with API keys from environment variables."""
+        self.api_key = os.environ["MICROCMS_API_KEY"]
+        self.domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
+        self.endpoint = f"https://{self.domain}.microcms.io/api/v1/proposals"
+        self.headers = {"X-MICROCMS-API-KEY": self.api_key, "Content-Type": "application/json"}
+        self.all_proposals = []
+        
+    def fetch_all_proposals(self):
+        """Fetch all proposals from microCMS."""
+        print("Fetching all proposals from microcms...")
+        # First, get all proposals. Iterate over all pages (around 500 contents in total).
+        offset = 0
+        for _ in range(10):
+            response = requests.get(
+                f"{self.endpoint}?limit=100&offset={offset}", headers=self.headers
             )
-        )
-        for content in contents:
-            content_id = content["id"]
-            delete_endpoint = f"{endpoint}/{content_id}"
-            response = requests.delete(delete_endpoint, headers=headers)
             response.raise_for_status()
-        print(f"Successfully deleted proposal {proposal_id} from microcms")
-    except Exception as e:
-        # Not raise an error in case the proposal does not exist.
-        print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
+            proposals = response.json()["contents"]
+            self.all_proposals.extend(proposals)
+            offset += 100
+        print(f"Done fetching all proposals from microcms ({len(self.all_proposals)} proposals)")
+        
+    def delete_proposal(self, proposal_id: str):
+        """
+        Delete a proposal from microCMS.
+        
+        Args:
+            proposal_id: ID of the proposal to delete
+        """
+        print(f"Deleting proposal {proposal_id} from microcms...")
+        try:
+            contents = list(
+                filter(
+                    lambda proposal: proposal["proposalId"] == proposal_id, self.all_proposals
+                )
+            )
+            for content in contents:
+                content_id = content["id"]
+                delete_endpoint = f"{self.endpoint}/{content_id}"
+                response = requests.delete(delete_endpoint, headers=self.headers)
+                response.raise_for_status()
+            print(f"Successfully deleted proposal {proposal_id} from microcms")
+        except Exception as e:
+            # Not raise an error in case the proposal does not exist.
+            print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
+            
+    def upload_proposal(self, proposal_data: dict):
+        """
+        Upload a proposal to microCMS with retry logic.
+        
+        Args:
+            proposal_data: Dictionary containing proposal data
+            
+        Returns:
+            Response JSON from microCMS
+        """
+        max_retries = 3
+        retry_delay = 5  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                print(f"Sending request to microCMS for proposal {proposal_data['proposal_id']} (attempt {attempt + 1}/{max_retries})...")
+                
+                html_content = convert_markdown_to_html(proposal_data["content"])
+
+                microcms_data = {
+                    "title": proposal_data["title"],
+                    "content": html_content,
+                    "proposalId": proposal_data["proposal_id"],
+                    "status": proposal_data["status"],
+                    "authors": proposal_data["authors"],
+                    "reviewManager": proposal_data.get("review_manager", ""),
+                }
+
+                response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
+                
+                if response.status_code == 502:
+                    print("Retrying with simplified content due to 502 error")
+                    simplified_html = simplify_html_structure(html_content)
+                    microcms_data["content"] = simplified_html
+                    response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
+                
+                if response.status_code >= 400:
+                    print(f"Error response from microCMS: {response.status_code}")
+                    print(f"Response content: {response.text}")
+                    response.raise_for_status()
+                    
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                print(f"Network error while uploading to microCMS (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if hasattr(e.response, 'text'):
+                    print(f"Response content: {e.response.text}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    raise
+            except Exception as e:
+                print(f"Unexpected error while uploading to microCMS: {str(e)}")
+                print("Traceback:")
+                print(traceback.format_exc())
+                raise
 
 
-def preprocess_microcms_data():
-    print("Fetching all proposals from microcms...")
-    # Delete all proposals in microcms
-    api_key = os.environ["MICROCMS_API_KEY"]
-    domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
-    endpoint = f"https://{domain}.microcms.io/api/v1/proposals"
-
-    headers = {"X-MICROCMS-API-KEY": api_key, "Content-Type": "application/json"}
-    # First, get all proposals. Iterate over all pages (around 500 contents in total).
-    offset = 0
-    for _ in range(10):
-        response = requests.get(
-            f"{endpoint}?limit=100&offset={offset}", headers=headers
+class R2Manager:
+    """Class for managing interactions with Cloudflare R2."""
+    
+    def __init__(self):
+        """Initialize with API keys from environment variables."""
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=os.environ["R2_ENDPOINT_URL"],
+            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
         )
-        response.raise_for_status()
-        proposals = response.json()["contents"]
-        all_proposals.extend(proposals)
-        offset += 100
-    print("Done fetching all proposals from microcms")
+        self.bucket_name = os.environ["R2_BUCKET_NAME"]
+        
+    def upload_answers(self, answers_data: List[Answer]):
+        """
+        Upload answers data to R2.
+        
+        Args:
+            answers_data: List of Answer objects
+        """
+        # Convert Answer objects to a dictionary with proposalId as keys
+        answers_json = {}
+        for answer in answers_data:
+            if answer.proposalId not in answers_json:
+                answers_json[answer.proposalId] = []
+
+            answers_json[answer.proposalId].append(
+                {
+                    "index": answer.index, 
+                    "answer": answer.answer,
+                    "options": answer.options
+                }
+            )
+            
+        # Upload to R2
+        try:
+            self.client.put_object(
+                Bucket=self.bucket_name,
+                Key="answers.json",
+                Body=json.dumps(answers_json, ensure_ascii=False, indent=2).encode("utf-8"),
+                ContentType="application/json",
+            )
+            print(f"Successfully uploaded answers to R2: answers.json")
+        except Exception as e:
+            print(f"Error uploading answers to R2: {str(e)}")
+            
+    def upload_word_freq_hist(self, word_freq_hist_df: pd.DataFrame):
+        """
+        Upload word frequency histogram to R2.
+        
+        Args:
+            word_freq_hist_df: DataFrame containing word frequency histogram
+        """
+        try:
+            self.client.put_object(
+                Bucket=self.bucket_name,
+                Key="word_freq_hist.json",
+                Body=word_freq_hist_df.to_json(orient="records").encode("utf-8"),
+                ContentType="application/json",
+            )
+            print(f"Successfully uploaded word frequency histogram to R2: word_freq_hist.json")
+        except Exception as e:
+            print(f"Error uploading word frequency histogram to R2: {str(e)}")
+            
+    def upload_similarity_map(self, similarity_map: Dict[str, List[str]]):
+        """
+        Upload similarity map to R2.
+        
+        Args:
+            similarity_map: Dictionary mapping words to similar words
+        """
+        if not similarity_map:
+            return
+            
+        try:
+            self.client.put_object(
+                Bucket=self.bucket_name,
+                Key="similarity_map.json",
+                Body=json.dumps(similarity_map, ensure_ascii=False, indent=2).encode("utf-8"),
+                ContentType="application/json",
+            )
+            print(f"Successfully uploaded similarity map to R2: similarity_map.json")
+        except Exception as e:
+            print(f"Error uploading similarity map to R2: {str(e)}")
+            
+    def upload_all(self, answers_data: List[Answer], word_freq_hist_df: pd.DataFrame, similarity_map: Dict[str, List[str]] = None):
+        """
+        Upload all data to R2.
+        
+        Args:
+            answers_data: List of Answer objects
+            word_freq_hist_df: DataFrame containing word frequency histogram
+            similarity_map: Dictionary mapping words to similar words
+        """
+        self.upload_answers(answers_data)
+        self.upload_word_freq_hist(word_freq_hist_df)
+        
+        if similarity_map:
+            self.upload_similarity_map(similarity_map)
 
 
-def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame):
-    """Upload answers data to Cloudflare R2"""
-    r2 = boto3.client(
-        "s3",
-        endpoint_url=os.environ["R2_ENDPOINT_URL"],
-        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
-    )
+def collect_all_nouns(proposal_files: List[str]) -> Tuple[Set[str], Counter]:
+    """
+    Collect all nouns from all proposal files.
+    
+    Args:
+        proposal_files: List of proposal file paths
+        
+    Returns:
+        Tuple of (set of unique nouns, Counter of word frequencies)
+    """
+    print("Collecting all nouns from all documents...")
+    all_word_freq_hists = Counter()
+    all_nouns = set()
+    
+    for file_path in proposal_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                post = frontmatter.loads(f.read())
+            
+            # Extract all nouns from the document
+            word_freq_hist = get_histogram_of_words(nlp, post.content)
+            all_word_freq_hists += word_freq_hist
+            # Add all nouns to the set
+            all_nouns.update(word_freq_hist.keys())
+            
+        except Exception as e:
+            print(f"Error collecting nouns from {file_path}: {str(e)}")
+            continue
+    
+    print(f"Collected {len(all_nouns)} unique nouns from all documents")
+    return all_nouns, all_word_freq_hists
 
-    # Convert Answer objects to a dictionary with proposalId as keys
-    answers_json = {}
-    for answer in answers_data:
-        if answer.proposalId not in answers_json:
-            answers_json[answer.proposalId] = []
 
-        answers_json[answer.proposalId].append(
-            {"index": answer.index, "answer": answer.answer}
-        )
-    # Upload to R2
+def process_proposal_file(
+    file_path: str, 
+    microcms_manager: MicroCMSManager, 
+    similarity_map: Dict[str, List[str]]
+) -> List[Answer]:
+    """
+    Process a single proposal file.
+    
+    Args:
+        file_path: Path to the proposal file
+        microcms_manager: MicroCMSManager instance
+        similarity_map: Dictionary mapping words to similar words
+        
+    Returns:
+        List of Answer objects
+    """
+    answers = []
+    
     try:
-        r2.put_object(
-            Bucket=os.environ["R2_BUCKET_NAME"],
-            Key="answers.json",
-            Body=json.dumps(answers_json, ensure_ascii=False, indent=2).encode("utf-8"),
-            ContentType="application/json",
-        )
-        print(f"Successfully uploaded answers to R2: answers.json")
-    except Exception as e:
-        print(f"Error uploading answers to R2: {str(e)}")
+        with open(file_path, "r", encoding="utf-8") as f:
+            post = frontmatter.loads(f.read())
 
-    # Upload word frequency histogram to R2
-    try:
-        r2.put_object(
-            Bucket=os.environ["R2_BUCKET_NAME"],
-            Key="word_freq_hist.json",
-            Body=word_freq_hist_df.to_json(orient="records").encode("utf-8"),
-            ContentType="application/json",
-        )
-        print(
-            f"Successfully uploaded word frequency histogram to R2: word_freq_hist.json"
-        )
+        proposal_id = os.path.basename(file_path).split("-")[0]
+        print(f"Processing proposal {proposal_id}...")
+        
+        # Use the MarkdownParser to mask content
+        parser = MarkdownParser(post.content, proposal_id, similarity_map)
+        masked_content, metadatas = parser.get_masked_content_and_metadata()
+        answers.extend(metadatas["Answer"])
+
+        proposal_data = {
+            "title": metadatas["Title"],
+            "content": masked_content,
+            "proposal_id": proposal_id,
+            "status": metadatas["Status"],
+            "authors": metadatas["Authors"] or metadatas["Author"],
+            "review_manager": metadatas["Review Manager"],
+        }
+        
+        # Before uploading, delete the proposal from microcms if it exists.
+        microcms_manager.delete_proposal(proposal_id)
+        print(f"\nUploading proposal {proposal_id} to microcms...")
+        result = microcms_manager.upload_proposal(proposal_data)
+        print(f"Successfully uploaded proposal {proposal_id}")
+
     except Exception as e:
-        print(f"Error uploading word frequency histogram to R2: {str(e)}")
+        print(f"Error processing {file_path}: {str(e)}")
+        print("Traceback:")
+        print(traceback.format_exc())
+        
+    return answers
 
 
 def main():
     try:
         random.seed(42)
         print("Starting preprocessing of microCMS data...")
-        preprocess_microcms_data()
+        
+        # Initialize managers
+        microcms_manager = MicroCMSManager()
+        r2_manager = R2Manager()
+        
+        # Fetch all existing proposals
+        microcms_manager.fetch_all_proposals()
+        
+        # Get all proposal files
         proposal_files = sorted(list(glob.glob("proposals/*.md")))
         print(f"Found {len(proposal_files)} proposal files to process")
 
-        all_word_freq_hists = Counter()
+        # First pass: collect all nouns and build similarity map
+        all_nouns, all_word_freq_hists = collect_all_nouns(proposal_files)
+        
+        # Build the similarity map for all collected nouns
+        print("Building similarity map for all nouns...")
+        similarity_map = build_word_similarity_map(nlp, all_nouns)
+        print(f"Finished building similarity map for {len(similarity_map)} words")
+
+        # Second pass: mask content and process documents
+        print("Processing all documents...")
         all_answers = []
-
+        
         for file_path in proposal_files:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    post = frontmatter.loads(f.read())
-
-                proposal_id = os.path.basename(file_path).split("-")[0]
-                print(f"Processing proposal {proposal_id}...")
-                
-                masked_content, metadatas = mask_content(post.content, proposal_id)
-                word_freq_hist = get_histogram_of_words(nlp, post.content)
-                all_word_freq_hists += word_freq_hist
-                all_answers.extend(metadatas["Answer"])
-
-                proposal_data = {
-                    "title": metadatas["Title"],
-                    "content": masked_content,
-                    "proposal_id": proposal_id,
-                    "status": metadatas["Status"],
-                    "authors": metadatas["Authors"] or metadatas["Author"],
-                    "review_manager": metadatas["Review Manager"],
-                }
-                # Before uploading, delete the proposal from microcms if it exists.
-                delete_proposal(proposal_id)
-                print(f"\nUploading proposal {proposal_id} to microcms...")
-                result = upload_to_microcms(proposal_data)
-                print(f"Successfully uploaded proposal {proposal_id}")
-
-            except Exception as e:
-                print(f"Error processing {file_path}: {str(e)}")
-                print("Traceback:")
-                print(traceback.format_exc())
-                continue
+            answers = process_proposal_file(file_path, microcms_manager, similarity_map)
+            all_answers.extend(answers)
 
         print("Generating word frequency histogram...")
         word_freq_hist_df = visualize_histogram_and_return_df(
@@ -459,8 +778,8 @@ def main():
         )
 
         print("Uploading data to R2...")
-        # Upload all answers to R2
-        upload_to_r2(all_answers, word_freq_hist_df)
+        # Upload all data to R2
+        r2_manager.upload_all(all_answers, word_freq_hist_df, similarity_map)
         
         print("Process completed successfully")
 
@@ -469,6 +788,53 @@ def main():
         print("Traceback:")
         print(traceback.format_exc())
         raise  # Re-raise the exception to ensure the GitHub Action fails
+
+
+def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame, similarity_map=None):
+    """
+    Legacy function that uses the new R2Manager class.
+    
+    Args:
+        answers_data: List of Answer objects
+        word_freq_hist_df: DataFrame containing word frequency histogram
+        similarity_map: Dictionary mapping words to similar words
+    """
+    manager = R2Manager()
+    manager.upload_all(answers_data, word_freq_hist_df, similarity_map)
+
+
+def preprocess_microcms_data():
+    """Legacy function that uses the new MicroCMSManager class."""
+    manager = MicroCMSManager()
+    manager.fetch_all_proposals()
+    global all_proposals
+    all_proposals = manager.all_proposals
+
+
+def delete_proposal(proposal_id: str):
+    """
+    Legacy function that uses the new MicroCMSManager class.
+    
+    Args:
+        proposal_id: ID of the proposal to delete
+    """
+    manager = MicroCMSManager()
+    manager.all_proposals = all_proposals
+    manager.delete_proposal(proposal_id)
+
+
+def upload_to_microcms(proposal_data):
+    """
+    Legacy function that uses the new MicroCMSManager class.
+    
+    Args:
+        proposal_data: Dictionary containing proposal data
+        
+    Returns:
+        Response JSON from microCMS
+    """
+    manager = MicroCMSManager()
+    return manager.upload_proposal(proposal_data)
 
 
 if __name__ == "__main__":

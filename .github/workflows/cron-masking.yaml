@@ -41,8 +41,10 @@ jobs:
             pandas \
             boto3 \
             beautifulsoup4 \
-            python-dotenv
-          python -m spacy download en_core_web_sm
+            python-dotenv \
+            scikit-learn \
+            tqdm
+          python -m spacy download en_core_web_md
 
       - name: Create artifacts directory
         run: mkdir -p artifacts
