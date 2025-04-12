@@ -3,10 +3,10 @@
 * Proposal: [SE-0465](0465-nonescapable-stdlib-primitives.md)
 * Authors: [Karoy Lorentey](https://github.com/lorentey)
 * Review Manager: [Doug Gregor](https://github.com/douggregor)
-* Status: **Active review (March 5...18, 2025)**
+* Status: **Accepted**
 * Roadmap: [Improving Swift performance predictability: ARC improvements and ownership control][Roadmap]
 * Implementation: https://github.com/swiftlang/swift/pull/73258
-* Review: ([Review](https://forums.swift.org/t/se-0465-standard-library-primitives-for-nonescapable-types/78310)) ([Pitch](https://forums.swift.org/t/pitch-nonescapable-standard-library-primitives/77253))
+* Review: ([Acceptance](https://forums.swift.org/t/accepted-se-0465-standard-library-primitives-for-nonescapable-type/78637)) ([Review](https://forums.swift.org/t/se-0465-standard-library-primitives-for-nonescapable-types/78310)) ([Pitch](https://forums.swift.org/t/pitch-nonescapable-standard-library-primitives/77253))
 
 [Roadmap]: https://forums.swift.org/t/a-roadmap-for-improving-swift-performance-predictability-arc-improvements-and-ownership-control/54206
 [Pitch]: https://forums.swift.org/t/pitch-nonescapable-standard-library-primitives/77253
@@ -241,7 +241,7 @@ We generalize `Result` along the same lines as `Optional`, allowing its `success
 
 Important convenience APIs such as `Result.init(catching:)` or `Result.map` will need to require escapability until we introduce a way to formally specify lifetime dependencies. This is unfortunate, but it still enables intrepid Swift developers to experiment with defining interfaces that take (or perhaps even return!) `Result` values.
 
-However, we are already able to generalize a small handful of methods: `get` and the two error-mapping utilities, `mapError` and `flatMapError`.
+However, we are already able to generalize a couple of methods: `get` and the error-mapping utility `mapError`.
 
 ```swift
 func sample<E: Error>(_ res: Result<Span<Int>, E>) -> Int {
@@ -525,7 +525,7 @@ extension Result: Escapable where Success: Escapable & ~Copyable {}
 extension Result: Sendable where Success: Sendable & ~Copyable & ~Escapable {}
 ```
 
-We postpone generalizing most of the higher-order functions that make `Result` convenient to use, as we currently lack the means to reason about lifetime dependencies for such functions. But we are already able to generalize the two functions that do not have complicated lifetime semantics: `mapError` and `flatMapError`.
+We postpone generalizing most of the higher-order functions that make `Result` convenient to use, as we currently lack the means to reason about lifetime dependencies for such functions. But we are already able to generalize the one function that does not have complicated lifetime semantics: `mapError`.
 
 ```swift
 extension Result where Success: ~Copyable & ~Escapable {
@@ -534,16 +534,9 @@ extension Result where Success: ~Copyable & ~Escapable {
     _ transform: (Failure) -> NewFailure
   ) -> Result<Success, NewFailure>
 }
-
-extension Result where Success: ~Copyable & ~Escapable {
-  @_lifetime(copying self) // Illustrative syntax
-  consuming func flatMapError<NewFailure>(
-    _ transform: (Failure) -> Result<Success, NewFailure>
-  ) -> Result<Success, NewFailure>
-}
 ```
 
-Both of these functions return a value with the same lifetime as the original `Result` instance.
+The returned value has the same lifetime constraints as the original `Result` instance.
 
 We can also generalize the convenient `get()` function, which is roughly equivalent to optional unwrapping:
 
@@ -888,5 +881,6 @@ Many people contributed to the discussions that led to this proposal. We'd like 
 - Guillaume Lessard
 - John McCall
 - Tony Parker
+- Ben Rimmington
 - Andrew Trick
 - Rauhul Varma
