@@ -260,9 +260,9 @@ class MarkdownParser:
         ]
         
         if contains_punctuation:
-            return r"◻︎" * (len(word) - 1) + word[-1], True
+            return r"＿" * (len(word) - 1) + word[-1], True
         else:
-            return r"◻︎" * len(word), True
+            return r"＿" * len(word), True
     
     def get_similar_word_options(self, word: str) -> List[str]:
         """
