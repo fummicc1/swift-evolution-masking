@@ -267,13 +267,7 @@ class MarkdownParser:
             Tuple of (masked_word, was_masked)
         """
         contains_punctuation = self.contains_punctuation(word)
-
-        blank = ""
-        if contains_punctuation:
-            blank = r"＿" * (len(word) - 1)
-        else:
-            blank = r"＿" * len(word)
-        
+        blank = r"＿" * 5
         return blank, contains_punctuation
     
     def get_similar_word_options(self, word: str) -> List[str]:
@@ -364,11 +358,12 @@ class MarkdownParser:
                     options = self.get_similar_word_options(word)
                     
                     # Add to answers
+                    answer_word = word if not contains_punctuation else word[:-1]
                     self.metadatas["Answer"].append(
                         Answer(
                             proposalId=self.proposal_id,
                             index=len(self.metadatas["Answer"]),
-                            answer=word,
+                            answer=answer_word,
                             options=options
                         )
                     )
