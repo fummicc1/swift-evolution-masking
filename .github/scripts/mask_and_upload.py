@@ -260,7 +260,7 @@ class MarkdownParser:
         ]
         
         if contains_punctuation:
-            return r"＿" * (len(word) - 1) + word[-1], True
+            return r"＿" * (len(word) - 1), True
         else:
             return r"＿" * len(word), True
     
