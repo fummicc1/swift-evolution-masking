@@ -236,6 +236,8 @@ class MarkdownParser:
             for word in words:
                 is_inside_hyperlink, is_inside_inline_code = self._check_markup_state(word, state)
                 
+                contains_punctuation = self.contains_punctuation(word)
+                
                 if should_mask_word(
                     word=word,
                     inside_code_block=inside_code_block,
@@ -243,7 +245,16 @@ class MarkdownParser:
                     inside_hyperlink=is_inside_hyperlink,
                     processes_metadata=processes_metadata,
                 ):
-                    self.masked_words.append(word.lower())
+                    masked_word = word[:-1].lower() if contains_punctuation else word.lower()
+                    self.masked_words.append(masked_word)
+    
+    def contains_punctuation(self, word: str) -> bool:
+        """
+        Check if a word is a punctuation.
+        """
+        return word[-1] in [
+            ".", ",", "!", "?", ":", ";", "-", "_", "~", "|", "=", "+", "*", "/", "\\", "@"
+        ]
     
     def mask_word(self, word: str) -> Tuple[str, bool]:
         """
@@ -255,14 +266,15 @@ class MarkdownParser:
         Returns:
             Tuple of (masked_word, was_masked)
         """
-        contains_punctuation = word[-1] in [
-            ".", ",", "!", "?", ":", ";", "-", "_", "~", "|", "=", "+", "*", "/", "\\", "@"
-        ]
-        
+        contains_punctuation = self.contains_punctuation(word)
+
+        blank = ""
         if contains_punctuation:
-            return r"＿" * (len(word) - 1), True
+            blank = r"＿" * (len(word) - 1)
         else:
-            return r"＿" * len(word), True
+            blank = r"＿" * len(word)
+        
+        return blank, contains_punctuation
     
     def get_similar_word_options(self, word: str) -> List[str]:
         """
@@ -275,8 +287,9 @@ class MarkdownParser:
             List of similar words
         """
         options = []
-        if self.similarity_map and word.lower() in self.similarity_map:
-            similar_words = self.similarity_map.get(word.lower(), [])
+        word = word[:-1].lower() if self.contains_punctuation(word) else word.lower()
+        if self.similarity_map and word in self.similarity_map:
+            similar_words = self.similarity_map.get(word, [])
             if similar_words:
                 # 最も類似度の高い上位3つの単語を選択（ランダムサンプリングしない）
                 options = similar_words[:min(3, len(similar_words))]
@@ -340,8 +353,12 @@ class MarkdownParser:
                     inside_hyperlink=is_inside_hyperlink,
                     processes_metadata=processes_metadata,
                 ):
-                    masked_word, _ = self.mask_word(word)
-                    masked_words.append(masked_word)
+                    masked_word, contains_punctuation = self.mask_word(word)
+                    if contains_punctuation:
+                        # masked_word is a blank, so we need to add the punctuation back.
+                        masked_words.append(masked_word + word[-1])
+                    else:
+                        masked_words.append(masked_word)
                     
                     # Get options for this word
                     options = self.get_similar_word_options(word)
