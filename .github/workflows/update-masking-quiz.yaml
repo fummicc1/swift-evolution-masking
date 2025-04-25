@@ -6,6 +6,20 @@ on:
     workflows: "[Cron] Merge Upstream"
     types:
       - completed
+  workflow_call:
+    secrets:
+      MICROCMS_API_KEY:
+        required: true
+      MICROCMS_SERVICE_DOMAIN:
+        required: true
+      R2_ENDPOINT_URL:
+        required: true
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_BUCKET_NAME:
+        required: true
 
 defaults:
   run:

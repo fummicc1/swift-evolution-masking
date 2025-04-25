@@ -42,5 +42,13 @@ jobs:
           git merge upstream/main
           git push origin main
 
-      - name: Update Masking Quiz
-        uses: ./.github/workflows/update-masking-quiz.yaml
+  update-masking-quiz:
+    uses: ./.github/workflows/update-masking-quiz.yaml
+    needs: merge-upstream
+    secrets:
+      MICROCMS_API_KEY: ${{ secrets.MICROCMS_API_KEY }}
+      MICROCMS_SERVICE_DOMAIN: ${{ secrets.MICROCMS_SERVICE_DOMAIN }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
