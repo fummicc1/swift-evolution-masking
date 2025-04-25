@@ -1,9 +1,15 @@
-name: "[Cron] Mask and Upload Proposals"
+name: "Update Masking Quiz"
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
   workflow_dispatch: # Allow manual trigger
+  workflow_run:
+    workflows: "[Cron] Merge Upstream"
+    types:
+      - completed
+
+defaults:
+  run:
+    shell: bash
 
 env:
   MICROCMS_API_KEY: ${{ secrets.MICROCMS_API_KEY }}
@@ -56,7 +62,7 @@ jobs:
           PYTHONUNBUFFERED: 1
 
       - name: Store artifacts
-        if: always()  # This ensures artifacts are uploaded even if the script fails
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: word_freq_hist
