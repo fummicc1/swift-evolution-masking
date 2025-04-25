@@ -1,4 +1,4 @@
-name: Mask and Upload Proposals
+name: "[Cron] Mask and Upload Proposals"
 
 on:
   schedule:
