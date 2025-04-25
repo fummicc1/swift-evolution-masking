@@ -30,7 +30,7 @@ env:
   R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "update-masking-quiz-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
