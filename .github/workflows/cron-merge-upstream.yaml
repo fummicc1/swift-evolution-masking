@@ -2,7 +2,7 @@ name: "[Cron] Merge Upstream"
 
 on:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 0 * * *"
   # Allow manual trigger
   workflow_dispatch:
 
