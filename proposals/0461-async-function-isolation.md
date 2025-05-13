@@ -3,10 +3,9 @@
 * Proposal: [SE-0461](0461-async-function-isolation.md)
 * Authors: [Holly Borla](https://github.com/hborla), [John McCall](https://github.com/rjmccall)
 * Review Manager: [Xiaodi Wu](https://github.com/xwu)
-* Status: **Accepted with modifications**
+* Status: **Implemented (Swift 6.2)**
 * Vision: [Improving the approachability of data-race safety](/visions/approachable-concurrency.md)
-* Implementation: On `main` behind `-enable-experimental-feature NonIsolatedAsyncInheritsIsolationFromContext`
-* Upcoming Feature Flag: `AsyncCallerExecution`
+* Upcoming Feature Flag: `NonisolatedNonsendingByDefault`
 * Previous Proposal: [SE-0338](0338-clarify-execution-non-actor-async.md)
 * Review: ([pitch](https://forums.swift.org/t/pitch-inherit-isolation-by-default-for-async-functions/74862)) ([first review](https://forums.swift.org/t/se-0461-run-nonisolated-async-functions-on-the-callers-actor-by-default/77987)) ([acceptance with focused re-review](https://forums.swift.org/t/accepted-with-modifications-and-focused-re-review-se-0461-run-nonisolated-async-functions-on-the-callers-actor-by-default/78920)) ([second review](https://forums.swift.org/t/focused-re-review-se-0461-run-nonisolated-async-functions-on-the-callers-actor-by-default/78921)) ([second acceptance](https://forums.swift.org/t/accepted-with-modifications-se-0461-run-nonisolated-async-functions-on-the-caller-s-actor-by-default/79117))
 
@@ -289,7 +288,7 @@ actor MyActor {
 In the above code, the call to `x.performAsync()` continues running on the
 `self` actor instance. The code does not produce a data-race safety error,
 because the `NotSendable` instance `x` does not leave the actor. In other
-words, the arguments are not send across an isolation boundary when calling
+words, the arguments are not sent across an isolation boundary when calling
 `performAsync` by default.
 
 This behavior is accomplished by implicitly passing an optional actor parameter
