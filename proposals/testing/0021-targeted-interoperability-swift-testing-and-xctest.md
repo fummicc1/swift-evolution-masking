@@ -13,7 +13,7 @@
 [swiftlang/swift-testing#1439](https://github.com/swiftlang/swift-testing/pull/1439),
 [swiftlang/swift-testing#1369](https://github.com/swiftlang/swift-testing/pull/1369),
 [swiftlang/swift-corelibs-xctest#525](https://github.com/swiftlang/swift-corelibs-xctest/pull/525)
-- Review: ([pitch](https://forums.swift.org/t/pitch-targeted-interoperability-between-swift-testing-and-xctest/82505))
+- Review: ([pitch](https://forums.swift.org/t/pitch-targeted-interoperability-between-swift-testing-and-xctest/82505), [review](https://forums.swift.org/t/st-0021-targeted-interoperability-between-swift-testing-and-xctest/84965))
 
 ## Introduction
 
