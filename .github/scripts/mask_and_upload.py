@@ -458,7 +458,7 @@ def simplify_html_structure(html_content: str) -> str:
 
 class MicroCMSManager:
     """Class for managing interactions with microCMS."""
-    
+
     def __init__(self):
         """Initialize with API keys from environment variables."""
         self.api_key = os.environ["MICROCMS_API_KEY"]
@@ -466,11 +466,10 @@ class MicroCMSManager:
         self.endpoint = f"https://{self.domain}.microcms.io/api/v1/proposals"
         self.headers = {"X-MICROCMS-API-KEY": self.api_key, "Content-Type": "application/json"}
         self.all_proposals = []
-        
+
     def fetch_all_proposals(self):
         """Fetch all proposals from microCMS."""
         print("Fetching all proposals from microcms...")
-        # First, get all proposals. Iterate over all pages (around 500 contents in total).
         offset = 0
         for _ in range(10):
             response = requests.get(
@@ -481,14 +480,9 @@ class MicroCMSManager:
             self.all_proposals.extend(proposals)
             offset += 100
         print(f"Done fetching all proposals from microcms ({len(self.all_proposals)} proposals)")
-        
+
     def delete_proposal(self, proposal_id: str):
-        """
-        Delete a proposal from microCMS.
-        
-        Args:
-            proposal_id: ID of the proposal to delete
-        """
+        """Delete a proposal from microCMS."""
         print(f"Deleting proposal {proposal_id} from microcms...")
         try:
             contents = list(
@@ -503,26 +497,17 @@ class MicroCMSManager:
                 response.raise_for_status()
             print(f"Successfully deleted proposal {proposal_id} from microcms")
         except Exception as e:
-            # Not raise an error in case the proposal does not exist.
             print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
-            
+
     def upload_proposal(self, proposal_data: dict):
-        """
-        Upload a proposal to microCMS with retry logic.
-        
-        Args:
-            proposal_data: Dictionary containing proposal data
-            
-        Returns:
-            Response JSON from microCMS
-        """
+        """Upload a proposal to microCMS with retry logic."""
         max_retries = 3
-        retry_delay = 5  # seconds
+        retry_delay = 5
 
         for attempt in range(max_retries):
             try:
                 print(f"Sending request to microCMS for proposal {proposal_data['proposal_id']} (attempt {attempt + 1}/{max_retries})...")
-                
+
                 html_content = convert_markdown_to_html(proposal_data["content"])
 
                 microcms_data = {
@@ -535,18 +520,18 @@ class MicroCMSManager:
                 }
 
                 response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
-                
+
                 if response.status_code == 502:
                     print("Retrying with simplified content due to 502 error")
                     simplified_html = simplify_html_structure(html_content)
                     microcms_data["content"] = simplified_html
                     response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
-                
+
                 if response.status_code >= 400:
                     print(f"Error response from microCMS: {response.status_code}")
                     print(f"Response content: {response.text}")
                     response.raise_for_status()
-                    
+
                 return response.json()
             except requests.exceptions.RequestException as e:
                 print(f"Network error while uploading to microCMS (attempt {attempt + 1}/{max_retries}): {str(e)}")
@@ -555,7 +540,7 @@ class MicroCMSManager:
                 if attempt < max_retries - 1:
                     print(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay *= 2
                 else:
                     raise
             except Exception as e:
@@ -563,6 +548,174 @@ class MicroCMSManager:
                 print("Traceback:")
                 print(traceback.format_exc())
                 raise
+
+    def upload_quiz_answers(self, answers_data: List['Answer']):
+        """No-op for microCMS (quiz answers are uploaded to R2 only)."""
+        pass
+
+
+class PayloadCMSManager:
+    """Class for managing interactions with Payload CMS."""
+
+    def __init__(self):
+        """Initialize with API keys from environment variables."""
+        self.api_url = os.environ["PAYLOAD_API_URL"].rstrip("/")
+        self.api_key = os.environ["PAYLOAD_API_KEY"]
+        self.proposals_endpoint = f"{self.api_url}/api/proposals"
+        self.quiz_answers_endpoint = f"{self.api_url}/api/quiz-answers"
+        self.headers = {
+            "Authorization": f"users API-Key {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        self.all_proposals = []
+
+    def fetch_all_proposals(self):
+        """Fetch all proposals from Payload CMS."""
+        print("Fetching all proposals from Payload CMS...")
+        page = 1
+        while True:
+            response = requests.get(
+                f"{self.proposals_endpoint}?limit=100&page={page}", headers=self.headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            self.all_proposals.extend(data["docs"])
+            if not data.get("hasNextPage", False):
+                break
+            page += 1
+        print(f"Done fetching all proposals from Payload CMS ({len(self.all_proposals)} proposals)")
+
+    def delete_proposal(self, proposal_id: str):
+        """
+        Delete a proposal from Payload CMS by proposalId.
+
+        Args:
+            proposal_id: proposalId of the proposal to delete
+        """
+        try:
+            contents = [p for p in self.all_proposals if p["proposalId"] == proposal_id]
+            for content in contents:
+                content_id = content["id"]
+                response = requests.delete(
+                    f"{self.proposals_endpoint}/{content_id}", headers=self.headers
+                )
+                response.raise_for_status()
+            if contents:
+                print(f"Deleted proposal {proposal_id} from Payload CMS")
+        except Exception as e:
+            print(f"Error deleting proposal {proposal_id}: {str(e)}")
+
+    def upload_proposal(self, proposal_data: dict):
+        """
+        Upload a proposal to Payload CMS with retry logic.
+
+        Args:
+            proposal_data: Dictionary containing proposal data
+
+        Returns:
+            Response JSON from Payload CMS
+        """
+        max_retries = 3
+        retry_delay = 5
+
+        for attempt in range(max_retries):
+            try:
+                print(f"Uploading proposal {proposal_data['proposal_id']} to Payload CMS (attempt {attempt + 1}/{max_retries})...")
+
+                html_content = convert_markdown_to_html(proposal_data["content"])
+
+                payload_data = {
+                    "title": proposal_data["title"],
+                    "content": html_content,
+                    "proposalId": proposal_data["proposal_id"],
+                    "status": proposal_data["status"],
+                    "authors": proposal_data["authors"],
+                    "reviewManager": proposal_data.get("review_manager", ""),
+                }
+
+                response = requests.post(
+                    self.proposals_endpoint, headers=self.headers, json=payload_data
+                )
+
+                if response.status_code >= 400:
+                    print(f"Error response: {response.status_code}")
+                    print(f"Response content: {response.text}")
+                    response.raise_for_status()
+
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                print(f"Network error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"Response content: {e.response.text}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise
+            except Exception as e:
+                print(f"Unexpected error: {str(e)}")
+                print(traceback.format_exc())
+                raise
+
+    def upload_quiz_answers(self, answers_data: List['Answer']):
+        """
+        Upload quiz answers to Payload CMS (quiz-answers collection).
+
+        Args:
+            answers_data: List of Answer objects
+        """
+        # Group answers by proposalId
+        answers_by_proposal: Dict[str, list] = {}
+        for answer in answers_data:
+            if answer.proposalId not in answers_by_proposal:
+                answers_by_proposal[answer.proposalId] = []
+            answers_by_proposal[answer.proposalId].append({
+                "index": answer.index,
+                "answer": answer.answer,
+                "options": answer.options,
+            })
+
+        # Fetch existing quiz-answers to handle upsert
+        existing_answers = {}
+        page = 1
+        while True:
+            response = requests.get(
+                f"{self.quiz_answers_endpoint}?limit=100&page={page}", headers=self.headers
+            )
+            response.raise_for_status()
+            data = response.json()
+            for doc in data["docs"]:
+                existing_answers[doc["proposalId"]] = doc["id"]
+            if not data.get("hasNextPage", False):
+                break
+            page += 1
+
+        # Upsert each proposal's answers
+        for proposal_id, answers in answers_by_proposal.items():
+            quiz_data = {
+                "proposalId": proposal_id,
+                "answers": answers,
+            }
+            try:
+                if proposal_id in existing_answers:
+                    # Update existing
+                    doc_id = existing_answers[proposal_id]
+                    response = requests.patch(
+                        f"{self.quiz_answers_endpoint}/{doc_id}",
+                        headers=self.headers,
+                        json=quiz_data,
+                    )
+                else:
+                    # Create new
+                    response = requests.post(
+                        self.quiz_answers_endpoint, headers=self.headers, json=quiz_data
+                    )
+                response.raise_for_status()
+            except Exception as e:
+                print(f"Error uploading quiz answers for {proposal_id}: {str(e)}")
+
+        print(f"Uploaded quiz answers for {len(answers_by_proposal)} proposals to Payload CMS")
 
 
 class R2Manager:
@@ -699,31 +852,46 @@ def collect_all_nouns(proposal_files: List[str]) -> Tuple[Set[str], Counter]:
     return all_nouns, all_word_freq_hists
 
 
+def create_cms_manager():
+    """
+    Create the appropriate CMS manager based on CMS_BACKEND env var.
+
+    Set CMS_BACKEND=payload to use Payload CMS, otherwise defaults to microCMS.
+    """
+    backend = os.environ.get("CMS_BACKEND", "microcms").lower()
+    if backend == "payload":
+        print("Using Payload CMS backend")
+        return PayloadCMSManager()
+    else:
+        print("Using microCMS backend")
+        return MicroCMSManager()
+
+
 def process_proposal_file(
-    file_path: str, 
-    microcms_manager: MicroCMSManager, 
+    file_path: str,
+    cms_manager,
     similarity_map: Dict[str, List[str]]
 ) -> List[Answer]:
     """
     Process a single proposal file.
-    
+
     Args:
         file_path: Path to the proposal file
-        microcms_manager: MicroCMSManager instance
+        cms_manager: PayloadCMSManager instance
         similarity_map: Dictionary mapping words to similar words
-        
+
     Returns:
         List of Answer objects
     """
     answers = []
-    
+
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             post = frontmatter.loads(f.read())
 
         proposal_id = os.path.basename(file_path).split("-")[0]
         print(f"Processing proposal {proposal_id}...")
-        
+
         # Use the MarkdownParser to mask content
         parser = MarkdownParser(post.content, proposal_id, similarity_map)
         masked_content, metadatas = parser.get_masked_content_and_metadata()
@@ -737,40 +905,39 @@ def process_proposal_file(
             "authors": metadatas["Authors"] or metadatas["Author"],
             "review_manager": metadatas["Review Manager"],
         }
-        
-        # Before uploading, delete the proposal from microcms if it exists.
-        microcms_manager.delete_proposal(proposal_id)
-        print(f"\nUploading proposal {proposal_id} to microcms...")
-        result = microcms_manager.upload_proposal(proposal_data)
+
+        # Delete then re-create the proposal
+        cms_manager.delete_proposal(proposal_id)
+        result = cms_manager.upload_proposal(proposal_data)
         print(f"Successfully uploaded proposal {proposal_id}")
 
     except Exception as e:
         print(f"Error processing {file_path}: {str(e)}")
         print("Traceback:")
         print(traceback.format_exc())
-        
+
     return answers
 
 
 def main():
     try:
         random.seed(42)
-        print("Starting preprocessing of microCMS data...")
-        
+        print("Starting content processing pipeline...")
+
         # Initialize managers
-        microcms_manager = MicroCMSManager()
+        cms_manager = create_cms_manager()
         r2_manager = R2Manager()
-        
+
         # Fetch all existing proposals
-        microcms_manager.fetch_all_proposals()
-        
+        cms_manager.fetch_all_proposals()
+
         # Get all proposal files
         proposal_files = sorted(list(glob.glob("proposals/*.md")))
         print(f"Found {len(proposal_files)} proposal files to process")
 
         # First pass: collect all nouns and build similarity map
         all_nouns, all_word_freq_hists = collect_all_nouns(proposal_files)
-        
+
         # Build the similarity map for all collected nouns
         print("Building similarity map for all nouns...")
         similarity_map = build_word_similarity_map(nlp, all_nouns)
@@ -779,9 +946,9 @@ def main():
         # Second pass: mask content and process documents
         print("Processing all documents...")
         all_answers = []
-        
+
         for file_path in proposal_files:
-            answers = process_proposal_file(file_path, microcms_manager, similarity_map)
+            answers = process_proposal_file(file_path, cms_manager, similarity_map)
             all_answers.extend(answers)
 
         print("Generating word frequency histogram...")
@@ -789,23 +956,27 @@ def main():
             all_word_freq_hists, write_to_file=True
         )
 
-        print("Uploading data to R2...")
-        # Upload all data to R2
+        # Upload quiz answers to Payload CMS
+        print("Uploading quiz answers to Payload CMS...")
+        cms_manager.upload_quiz_answers(all_answers)
+
+        # Upload auxiliary data to R2 (word freq, similarity map)
+        print("Uploading auxiliary data to R2...")
         r2_manager.upload_all(all_answers, word_freq_hist_df, similarity_map)
-        
+
         print("Process completed successfully")
 
     except Exception as e:
         print(f"Fatal error in main process: {str(e)}")
         print("Traceback:")
         print(traceback.format_exc())
-        raise  # Re-raise the exception to ensure the GitHub Action fails
+        raise
 
 
 def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame, similarity_map=None):
     """
-    Legacy function that uses the new R2Manager class.
-    
+    Legacy function that uses the R2Manager class.
+
     Args:
         answers_data: List of Answer objects
         word_freq_hist_df: DataFrame containing word frequency histogram
@@ -813,40 +984,6 @@ def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame, similarity_map=N
     """
     manager = R2Manager()
     manager.upload_all(answers_data, word_freq_hist_df, similarity_map)
-
-
-def preprocess_microcms_data():
-    """Legacy function that uses the new MicroCMSManager class."""
-    manager = MicroCMSManager()
-    manager.fetch_all_proposals()
-    global all_proposals
-    all_proposals = manager.all_proposals
-
-
-def delete_proposal(proposal_id: str):
-    """
-    Legacy function that uses the new MicroCMSManager class.
-    
-    Args:
-        proposal_id: ID of the proposal to delete
-    """
-    manager = MicroCMSManager()
-    manager.all_proposals = all_proposals
-    manager.delete_proposal(proposal_id)
-
-
-def upload_to_microcms(proposal_data):
-    """
-    Legacy function that uses the new MicroCMSManager class.
-    
-    Args:
-        proposal_data: Dictionary containing proposal data
-        
-    Returns:
-        Response JSON from microCMS
-    """
-    manager = MicroCMSManager()
-    return manager.upload_proposal(proposal_data)
 
 
 if __name__ == "__main__":
