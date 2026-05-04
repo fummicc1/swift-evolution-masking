@@ -15,7 +15,9 @@
   [swiftlang/swift-corelibs-xctest#525](https://github.com/swiftlang/swift-corelibs-xctest/pull/525)
 - Review: ([pitch](https://forums.swift.org/t/pitch-targeted-interoperability-between-swift-testing-and-xctest/82505),
   [review](https://forums.swift.org/t/st-0021-targeted-interoperability-between-swift-testing-and-xctest/84965),
-  [acceptance](https://forums.swift.org/t/accepted-st-0021-targeted-interoperability-between-swift-testing-and-xctest/85331))
+  [acceptance](https://forums.swift.org/t/accepted-st-0021-targeted-interoperability-between-swift-testing-and-xctest/85331)
+  [amendment](https://forums.swift.org/t/amendment-st-0021-targeted-interoperability-between-swift-testing-and-xctest/86142),
+  [amended](https://forums.swift.org/t/amended-st-0021-targeted-interoperability-between-swift-testing-and-xctest/86479))
 
 > Apr 2026: Amended to change the definition of limited interop mode.
 
