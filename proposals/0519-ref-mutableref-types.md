@@ -3,7 +3,7 @@
 * Proposal: [SE-0519](0519-ref-mutableref-types.md)
 * Authors: [Joe Groff](https://github.com/jckarter), [Alejandro Alonso](https://github.com/Azoy)
 * Review Manager: [Doug Gregor](https://github.com/DougGregor)
-* Status: **Active review (March 4...17, 2026)**
+* Status: **Implemented (Swift 6.4)**
 * Implementation: [swiftlang/swift#87222](https://github.com/swiftlang/swift/pull/87222), available in recent `main` development snapshots on swift.org
 * Previous Revision: *if applicable* [1](https://github.com/swiftlang/swift-evolution/blob/...commit-ID.../proposals/NNNN-filename.md)
 * Review: ([pitch](https://forums.swift.org/...)) ([review](https://forums.swift.org/t/se-0519-borrow-and-inout-types-for-safe-first-class-references/85151))
