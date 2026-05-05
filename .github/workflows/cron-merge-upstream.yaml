@@ -45,9 +45,13 @@ jobs:
   update-masking-quiz:
     uses: ./.github/workflows/update-masking-quiz.yaml
     needs: merge-upstream
+    with:
+      cms_backend: microcms
     secrets:
       MICROCMS_API_KEY: ${{ secrets.MICROCMS_API_KEY }}
       MICROCMS_SERVICE_DOMAIN: ${{ secrets.MICROCMS_SERVICE_DOMAIN }}
+      PAYLOAD_API_URL: ${{ secrets.PAYLOAD_API_URL }}
+      PAYLOAD_API_KEY: ${{ secrets.PAYLOAD_API_KEY }}
       R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
