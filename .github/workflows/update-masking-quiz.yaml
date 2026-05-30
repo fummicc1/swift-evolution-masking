@@ -6,7 +6,7 @@ on:
       cms_backend:
         description: "CMS backend to use (microcms or payload)"
         required: false
-        default: "microcms"
+        default: "payload"
         type: choice
         options:
           - microcms
