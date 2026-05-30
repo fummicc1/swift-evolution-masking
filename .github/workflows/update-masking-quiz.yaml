@@ -74,6 +74,7 @@ jobs:
             markdown \
             pygments \
             spacy \
+            click \
             matplotlib \
             numpy \
             pandas \
