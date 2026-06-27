@@ -4,7 +4,6 @@ from spacy.language import Language
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import boto3
 from typing import Dict, List, Set, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
 import tqdm
