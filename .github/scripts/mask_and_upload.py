@@ -8,7 +8,6 @@ import os
 import requests
 import random
 import markdown
-import pandas as pd
 import traceback
 from dotenv import load_dotenv
 from pathlib import Path
@@ -20,7 +19,6 @@ from markdown.extensions.footnotes import FootnoteExtension
 from markdown.extensions.tables import TableExtension
 import en_core_web_md
 from word_freq_hist import get_histogram_of_words, visualize_histogram_and_return_df, build_word_similarity_map
-import boto3
 from bs4 import BeautifulSoup
 from typing import Dict, List, Set, Tuple, Any
 
@@ -456,104 +454,6 @@ def simplify_html_structure(html_content: str) -> str:
     return str(soup)
 
 
-class MicroCMSManager:
-    """Class for managing interactions with microCMS."""
-
-    def __init__(self):
-        """Initialize with API keys from environment variables."""
-        self.api_key = os.environ["MICROCMS_API_KEY"]
-        self.domain = os.environ["MICROCMS_SERVICE_DOMAIN"]
-        self.endpoint = f"https://{self.domain}.microcms.io/api/v1/proposals"
-        self.headers = {"X-MICROCMS-API-KEY": self.api_key, "Content-Type": "application/json"}
-        self.all_proposals = []
-
-    def fetch_all_proposals(self):
-        """Fetch all proposals from microCMS."""
-        print("Fetching all proposals from microcms...")
-        offset = 0
-        for _ in range(10):
-            response = requests.get(
-                f"{self.endpoint}?limit=100&offset={offset}", headers=self.headers
-            )
-            response.raise_for_status()
-            proposals = response.json()["contents"]
-            self.all_proposals.extend(proposals)
-            offset += 100
-        print(f"Done fetching all proposals from microcms ({len(self.all_proposals)} proposals)")
-
-    def delete_proposal(self, proposal_id: str):
-        """Delete a proposal from microCMS."""
-        print(f"Deleting proposal {proposal_id} from microcms...")
-        try:
-            contents = list(
-                filter(
-                    lambda proposal: proposal["proposalId"] == proposal_id, self.all_proposals
-                )
-            )
-            for content in contents:
-                content_id = content["id"]
-                delete_endpoint = f"{self.endpoint}/{content_id}"
-                response = requests.delete(delete_endpoint, headers=self.headers)
-                response.raise_for_status()
-            print(f"Successfully deleted proposal {proposal_id} from microcms")
-        except Exception as e:
-            print(f"Error deleting proposal {proposal_id} from microcms: {str(e)}")
-
-    def upload_proposal(self, proposal_data: dict):
-        """Upload a proposal to microCMS with retry logic."""
-        max_retries = 3
-        retry_delay = 5
-
-        for attempt in range(max_retries):
-            try:
-                print(f"Sending request to microCMS for proposal {proposal_data['proposal_id']} (attempt {attempt + 1}/{max_retries})...")
-
-                html_content = convert_markdown_to_html(proposal_data["content"])
-
-                microcms_data = {
-                    "title": proposal_data["title"],
-                    "content": html_content,
-                    "proposalId": proposal_data["proposal_id"],
-                    "status": proposal_data["status"],
-                    "authors": proposal_data["authors"],
-                    "reviewManager": proposal_data.get("review_manager", ""),
-                }
-
-                response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
-
-                if response.status_code == 502:
-                    print("Retrying with simplified content due to 502 error")
-                    simplified_html = simplify_html_structure(html_content)
-                    microcms_data["content"] = simplified_html
-                    response = requests.post(self.endpoint, headers=self.headers, json=microcms_data)
-
-                if response.status_code >= 400:
-                    print(f"Error response from microCMS: {response.status_code}")
-                    print(f"Response content: {response.text}")
-                    response.raise_for_status()
-
-                return response.json()
-            except requests.exceptions.RequestException as e:
-                print(f"Network error while uploading to microCMS (attempt {attempt + 1}/{max_retries}): {str(e)}")
-                if hasattr(e.response, 'text'):
-                    print(f"Response content: {e.response.text}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    raise
-            except Exception as e:
-                print(f"Unexpected error while uploading to microCMS: {str(e)}")
-                print("Traceback:")
-                print(traceback.format_exc())
-                raise
-
-    def upload_quiz_answers(self, answers_data: List['Answer']):
-        """No-op for microCMS (quiz answers are uploaded to R2 only)."""
-        pass
-
-
 class PayloadCMSManager:
     """Class for managing interactions with Payload CMS."""
 
@@ -718,107 +618,6 @@ class PayloadCMSManager:
         print(f"Uploaded quiz answers for {len(answers_by_proposal)} proposals to Payload CMS")
 
 
-class R2Manager:
-    """Class for managing interactions with Cloudflare R2."""
-    
-    def __init__(self):
-        """Initialize with API keys from environment variables."""
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=os.environ["R2_ENDPOINT_URL"],
-            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-            aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
-        )
-        self.bucket_name = os.environ["R2_BUCKET_NAME"]
-        
-    def upload_answers(self, answers_data: List[Answer]):
-        """
-        Upload answers data to R2.
-        
-        Args:
-            answers_data: List of Answer objects
-        """
-        # Convert Answer objects to a dictionary with proposalId as keys
-        answers_json = {}
-        for answer in answers_data:
-            if answer.proposalId not in answers_json:
-                answers_json[answer.proposalId] = []
-
-            answers_json[answer.proposalId].append(
-                {
-                    "index": answer.index, 
-                    "answer": answer.answer,
-                    "options": answer.options
-                }
-            )
-            
-        # Upload to R2
-        try:
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key="answers.json",
-                Body=json.dumps(answers_json, ensure_ascii=False, indent=2).encode("utf-8"),
-                ContentType="application/json",
-            )
-            print(f"Successfully uploaded answers to R2: answers.json")
-        except Exception as e:
-            print(f"Error uploading answers to R2: {str(e)}")
-            
-    def upload_word_freq_hist(self, word_freq_hist_df: pd.DataFrame):
-        """
-        Upload word frequency histogram to R2.
-        
-        Args:
-            word_freq_hist_df: DataFrame containing word frequency histogram
-        """
-        try:
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key="word_freq_hist.json",
-                Body=word_freq_hist_df.to_json(orient="records").encode("utf-8"),
-                ContentType="application/json",
-            )
-            print(f"Successfully uploaded word frequency histogram to R2: word_freq_hist.json")
-        except Exception as e:
-            print(f"Error uploading word frequency histogram to R2: {str(e)}")
-            
-    def upload_similarity_map(self, similarity_map: Dict[str, List[str]]):
-        """
-        Upload similarity map to R2.
-        
-        Args:
-            similarity_map: Dictionary mapping words to similar words
-        """
-        if not similarity_map:
-            return
-            
-        try:
-            self.client.put_object(
-                Bucket=self.bucket_name,
-                Key="similarity_map.json",
-                Body=json.dumps(similarity_map, ensure_ascii=False, indent=2).encode("utf-8"),
-                ContentType="application/json",
-            )
-            print(f"Successfully uploaded similarity map to R2: similarity_map.json")
-        except Exception as e:
-            print(f"Error uploading similarity map to R2: {str(e)}")
-            
-    def upload_all(self, answers_data: List[Answer], word_freq_hist_df: pd.DataFrame, similarity_map: Dict[str, List[str]] = None):
-        """
-        Upload all data to R2.
-        
-        Args:
-            answers_data: List of Answer objects
-            word_freq_hist_df: DataFrame containing word frequency histogram
-            similarity_map: Dictionary mapping words to similar words
-        """
-        self.upload_answers(answers_data)
-        self.upload_word_freq_hist(word_freq_hist_df)
-        
-        if similarity_map:
-            self.upload_similarity_map(similarity_map)
-
-
 def collect_all_nouns(proposal_files: List[str]) -> Tuple[Set[str], Counter]:
     """
     Collect all nouns from all proposal files.
@@ -853,18 +652,9 @@ def collect_all_nouns(proposal_files: List[str]) -> Tuple[Set[str], Counter]:
 
 
 def create_cms_manager():
-    """
-    Create the appropriate CMS manager based on CMS_BACKEND env var.
-
-    Set CMS_BACKEND=payload to use Payload CMS, otherwise defaults to microCMS.
-    """
-    backend = os.environ.get("CMS_BACKEND", "microcms").lower()
-    if backend == "payload":
-        print("Using Payload CMS backend")
-        return PayloadCMSManager()
-    else:
-        print("Using microCMS backend")
-        return MicroCMSManager()
+    """Create the Payload CMS manager."""
+    print("Using Payload CMS backend")
+    return PayloadCMSManager()
 
 
 def process_proposal_file(
@@ -924,9 +714,8 @@ def main():
         random.seed(42)
         print("Starting content processing pipeline...")
 
-        # Initialize managers
+        # Initialize the Payload CMS manager
         cms_manager = create_cms_manager()
-        r2_manager = R2Manager()
 
         # Fetch all existing proposals
         cms_manager.fetch_all_proposals()
@@ -952,17 +741,11 @@ def main():
             all_answers.extend(answers)
 
         print("Generating word frequency histogram...")
-        word_freq_hist_df = visualize_histogram_and_return_df(
-            all_word_freq_hists, write_to_file=True
-        )
+        visualize_histogram_and_return_df(all_word_freq_hists, write_to_file=True)
 
         # Upload quiz answers to Payload CMS
         print("Uploading quiz answers to Payload CMS...")
         cms_manager.upload_quiz_answers(all_answers)
-
-        # Upload auxiliary data to R2 (word freq, similarity map)
-        print("Uploading auxiliary data to R2...")
-        r2_manager.upload_all(all_answers, word_freq_hist_df, similarity_map)
 
         print("Process completed successfully")
 
@@ -971,19 +754,6 @@ def main():
         print("Traceback:")
         print(traceback.format_exc())
         raise
-
-
-def upload_to_r2(answers_data, word_freq_hist_df: pd.DataFrame, similarity_map=None):
-    """
-    Legacy function that uses the R2Manager class.
-
-    Args:
-        answers_data: List of Answer objects
-        word_freq_hist_df: DataFrame containing word frequency histogram
-        similarity_map: Dictionary mapping words to similar words
-    """
-    manager = R2Manager()
-    manager.upload_all(answers_data, word_freq_hist_df, similarity_map)
 
 
 if __name__ == "__main__":

@@ -2,38 +2,11 @@ name: "Update Masking Quiz"
 
 on:
   workflow_dispatch:
-    inputs:
-      cms_backend:
-        description: "CMS backend to use (microcms or payload)"
-        required: false
-        default: "payload"
-        type: choice
-        options:
-          - microcms
-          - payload
   workflow_call:
-    inputs:
-      cms_backend:
-        description: "CMS backend to use (microcms or payload)"
-        required: false
-        default: "microcms"
-        type: string
     secrets:
-      MICROCMS_API_KEY:
-        required: false
-      MICROCMS_SERVICE_DOMAIN:
-        required: false
       PAYLOAD_API_URL:
-        required: false
+        required: true
       PAYLOAD_API_KEY:
-        required: false
-      R2_ENDPOINT_URL:
-        required: true
-      R2_ACCESS_KEY_ID:
-        required: true
-      R2_SECRET_ACCESS_KEY:
-        required: true
-      R2_BUCKET_NAME:
         required: true
 
 defaults:
@@ -41,15 +14,8 @@ defaults:
     shell: bash
 
 env:
-  CMS_BACKEND: ${{ inputs.cms_backend || 'microcms' }}
-  MICROCMS_API_KEY: ${{ secrets.MICROCMS_API_KEY }}
-  MICROCMS_SERVICE_DOMAIN: ${{ secrets.MICROCMS_SERVICE_DOMAIN }}
   PAYLOAD_API_URL: ${{ secrets.PAYLOAD_API_URL }}
   PAYLOAD_API_KEY: ${{ secrets.PAYLOAD_API_KEY }}
-  R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
 
 concurrency:
   group: "update-masking-quiz-${{ github.ref }}"
@@ -78,7 +44,6 @@ jobs:
             matplotlib \
             numpy \
             pandas \
-            boto3 \
             beautifulsoup4 \
             python-dotenv \
             scikit-learn \
@@ -90,7 +55,6 @@ jobs:
 
       - name: Process and upload proposals
         run: |
-          echo "Using CMS backend: $CMS_BACKEND"
           python .github/scripts/mask_and_upload.py
         env:
           PYTHONUNBUFFERED: 1
