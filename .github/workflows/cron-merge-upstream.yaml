@@ -49,6 +49,12 @@ jobs:
             # rejected. We only care about upstream proposal content here, so
             # restore our own workflow definitions before pushing.
             if ! git diff --quiet "$before" "$after" -- .github/workflows; then
+              # Reset .github/workflows entirely to its pre-merge state. A plain
+              # `git checkout "$before" -- .github/workflows` only restores paths
+              # that exist in $before, so newly added upstream workflow files
+              # (e.g. proposal_pull_request_swift.yml) would survive and still be
+              # pushed. Removing the tree first guarantees additions are dropped.
+              git rm -r --quiet .github/workflows
               git checkout "$before" -- .github/workflows
               git commit --amend --no-edit
             fi
