@@ -39,7 +39,20 @@ jobs:
       - name: Merge Upstream
         run: |
           git checkout main
-          git merge upstream/main
+          before=$(git rev-parse HEAD)
+          git merge upstream/main --no-edit
+          after=$(git rev-parse HEAD)
+          if [ "$before" != "$after" ]; then
+            # The default GITHUB_TOKEN cannot push changes to files under
+            # .github/workflows (it lacks the `workflows` permission), so a
+            # merge that imports or modifies upstream workflow files would be
+            # rejected. We only care about upstream proposal content here, so
+            # restore our own workflow definitions before pushing.
+            if ! git diff --quiet "$before" "$after" -- .github/workflows; then
+              git checkout "$before" -- .github/workflows
+              git commit --amend --no-edit
+            fi
+          fi
           git push origin main
 
   update-masking-quiz:
