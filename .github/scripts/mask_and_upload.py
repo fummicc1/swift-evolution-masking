@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import datetime
 import json
+import re
 import time
 import frontmatter
 import glob
@@ -28,6 +29,31 @@ if env_path.exists():
     load_dotenv(env_path)
 
 nlp = en_core_web_md.load()
+
+
+# A proposal references another via a local link like `](0304-foo.md)` (also inside
+# anchored or full GitHub-blob URLs) or an inline `SE-0304` mention.
+LOCAL_LINK_RE = re.compile(r'(\d{4})-[\w.\-]*\.md')
+INLINE_SE_RE = re.compile(r'SE-(\d{4})')
+
+
+def proposal_id_from_filename(file_path: str) -> str:
+    return os.path.basename(file_path).split("-")[0]
+
+
+def build_valid_proposal_ids(proposal_files: List[str]) -> Set[str]:
+    return {proposal_id_from_filename(p) for p in proposal_files}
+
+
+def extract_related_proposals(raw_markdown: str, self_id: str, valid_ids: Set[str]) -> List[str]:
+    """Extract the 4-digit IDs of proposals referenced by this proposal's raw markdown.
+
+    Runs on the unmasked body so link targets / SE-#### mentions are intact. Drops
+    self-references and any ID that does not correspond to a real proposal file.
+    """
+    found = set(LOCAL_LINK_RE.findall(raw_markdown)) | set(INLINE_SE_RE.findall(raw_markdown))
+    found.discard(self_id)
+    return sorted(pid for pid in found if pid in valid_ids)
 
 
 class Answer:
@@ -463,6 +489,7 @@ class PayloadCMSManager:
         self.api_key = os.environ["PAYLOAD_API_KEY"]
         self.proposals_endpoint = f"{self.api_url}/api/proposals"
         self.quiz_answers_endpoint = f"{self.api_url}/api/quiz-answers"
+        self.references_endpoint = f"{self.api_url}/api/proposal-references"
         self.headers = {
             "Authorization": f"users API-Key {self.api_key}",
             "Content-Type": "application/json",
@@ -504,6 +531,32 @@ class PayloadCMSManager:
                 print(f"Deleted proposal {proposal_id} from Payload CMS")
         except Exception as e:
             print(f"Error deleting proposal {proposal_id}: {str(e)}")
+
+    def delete_references_from(self, from_id: str):
+        """Delete all outgoing reference edges for a proposal so they can be rebuilt idempotently."""
+        try:
+            response = requests.delete(
+                self.references_endpoint,
+                headers=self.headers,
+                params={"where[fromProposalId][equals]": from_id},
+            )
+            response.raise_for_status()
+        except Exception as e:
+            print(f"Error deleting references from {from_id}: {str(e)}")
+
+    def create_reference(self, from_id: str, to_id: str):
+        """Create a single directed edge from_id -> to_id in the proposal-references collection."""
+        try:
+            response = requests.post(
+                self.references_endpoint,
+                headers=self.headers,
+                json={"fromProposalId": from_id, "toProposalId": to_id},
+            )
+            if response.status_code >= 400:
+                print(f"Error creating reference {from_id}->{to_id}: {response.status_code} {response.text}")
+                response.raise_for_status()
+        except Exception as e:
+            print(f"Error creating reference {from_id}->{to_id}: {str(e)}")
 
     def upload_proposal(self, proposal_data: dict):
         """
@@ -660,7 +713,8 @@ def create_cms_manager():
 def process_proposal_file(
     file_path: str,
     cms_manager,
-    similarity_map: Dict[str, List[str]]
+    similarity_map: Dict[str, List[str]],
+    valid_ids: Set[str]
 ) -> List[Answer]:
     """
     Process a single proposal file.
@@ -669,6 +723,7 @@ def process_proposal_file(
         file_path: Path to the proposal file
         cms_manager: PayloadCMSManager instance
         similarity_map: Dictionary mapping words to similar words
+        valid_ids: Set of all known proposal IDs (to validate references against)
 
     Returns:
         List of Answer objects
@@ -679,7 +734,7 @@ def process_proposal_file(
         with open(file_path, "r", encoding="utf-8") as f:
             post = frontmatter.loads(f.read())
 
-        proposal_id = os.path.basename(file_path).split("-")[0]
+        proposal_id = proposal_id_from_filename(file_path)
         print(f"Processing proposal {proposal_id}...")
 
         # Use the MarkdownParser to mask content
@@ -700,6 +755,13 @@ def process_proposal_file(
         cms_manager.delete_proposal(proposal_id)
         result = cms_manager.upload_proposal(proposal_data)
         print(f"Successfully uploaded proposal {proposal_id}")
+
+        # Rebuild this proposal's outgoing dependency edges (idempotent: clear then create)
+        related = extract_related_proposals(post.content, proposal_id, valid_ids)
+        cms_manager.delete_references_from(proposal_id)
+        for to_id in related:
+            cms_manager.create_reference(proposal_id, to_id)
+        print(f"Rebuilt {len(related)} reference edges for proposal {proposal_id}")
 
     except Exception as e:
         print(f"Error processing {file_path}: {str(e)}")
@@ -724,6 +786,9 @@ def main():
         proposal_files = sorted(list(glob.glob("proposals/*.md")))
         print(f"Found {len(proposal_files)} proposal files to process")
 
+        # Set of all known proposal IDs, used to validate extracted references
+        valid_ids = build_valid_proposal_ids(proposal_files)
+
         # First pass: collect all nouns and build similarity map
         all_nouns, all_word_freq_hists = collect_all_nouns(proposal_files)
 
@@ -737,7 +802,7 @@ def main():
         all_answers = []
 
         for file_path in proposal_files:
-            answers = process_proposal_file(file_path, cms_manager, similarity_map)
+            answers = process_proposal_file(file_path, cms_manager, similarity_map, valid_ids)
             all_answers.extend(answers)
 
         print("Generating word frequency histogram...")
