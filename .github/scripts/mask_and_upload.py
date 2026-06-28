@@ -489,48 +489,63 @@ class PayloadCMSManager:
         self.api_key = os.environ["PAYLOAD_API_KEY"]
         self.proposals_endpoint = f"{self.api_url}/api/proposals"
         self.quiz_answers_endpoint = f"{self.api_url}/api/quiz-answers"
+        self.testing_proposals_endpoint = f"{self.api_url}/api/testing-proposals"
+        self.testing_quiz_answers_endpoint = f"{self.api_url}/api/testing-quiz-answers"
         self.references_endpoint = f"{self.api_url}/api/proposal-references"
         self.headers = {
             "Authorization": f"users API-Key {self.api_key}",
             "Content-Type": "application/json",
         }
-        self.all_proposals = []
+        # 既存 proposal をトラック別に保持（delete-before-create 用）。track は "se" / "testing"。
+        self.all_proposals_by_track = {"se": [], "testing": []}
+
+    def _proposals_endpoint(self, track: str) -> str:
+        return self.testing_proposals_endpoint if track == "testing" else self.proposals_endpoint
+
+    def _quiz_answers_endpoint(self, track: str) -> str:
+        return self.testing_quiz_answers_endpoint if track == "testing" else self.quiz_answers_endpoint
 
     def fetch_all_proposals(self):
-        """Fetch all proposals from Payload CMS."""
-        print("Fetching all proposals from Payload CMS...")
-        page = 1
-        while True:
-            response = requests.get(
-                f"{self.proposals_endpoint}?limit=100&page={page}", headers=self.headers
-            )
-            response.raise_for_status()
-            data = response.json()
-            self.all_proposals.extend(data["docs"])
-            if not data.get("hasNextPage", False):
-                break
-            page += 1
-        print(f"Done fetching all proposals from Payload CMS ({len(self.all_proposals)} proposals)")
+        """Fetch all existing proposals from Payload CMS for each track."""
+        for track in ("se", "testing"):
+            endpoint = self._proposals_endpoint(track)
+            print(f"Fetching all {track} proposals from Payload CMS...")
+            docs = []
+            page = 1
+            while True:
+                response = requests.get(
+                    f"{endpoint}?limit=100&page={page}", headers=self.headers
+                )
+                response.raise_for_status()
+                data = response.json()
+                docs.extend(data["docs"])
+                if not data.get("hasNextPage", False):
+                    break
+                page += 1
+            self.all_proposals_by_track[track] = docs
+            print(f"Done fetching {track} proposals from Payload CMS ({len(docs)} proposals)")
 
-    def delete_proposal(self, proposal_id: str):
+    def delete_proposal(self, proposal_id: str, track: str = "se"):
         """
         Delete a proposal from Payload CMS by proposalId.
 
         Args:
             proposal_id: proposalId of the proposal to delete
+            track: "se" (proposals) or "testing" (testing-proposals)
         """
         try:
-            contents = [p for p in self.all_proposals if p["proposalId"] == proposal_id]
+            endpoint = self._proposals_endpoint(track)
+            contents = [p for p in self.all_proposals_by_track[track] if p["proposalId"] == proposal_id]
             for content in contents:
                 content_id = content["id"]
                 response = requests.delete(
-                    f"{self.proposals_endpoint}/{content_id}", headers=self.headers
+                    f"{endpoint}/{content_id}", headers=self.headers
                 )
                 response.raise_for_status()
             if contents:
-                print(f"Deleted proposal {proposal_id} from Payload CMS")
+                print(f"Deleted {track} proposal {proposal_id} from Payload CMS")
         except Exception as e:
-            print(f"Error deleting proposal {proposal_id}: {str(e)}")
+            print(f"Error deleting {track} proposal {proposal_id}: {str(e)}")
 
     def delete_references_from(self, from_id: str):
         """Delete all outgoing reference edges for a proposal so they can be rebuilt idempotently."""
@@ -558,22 +573,24 @@ class PayloadCMSManager:
         except Exception as e:
             print(f"Error creating reference {from_id}->{to_id}: {str(e)}")
 
-    def upload_proposal(self, proposal_data: dict):
+    def upload_proposal(self, proposal_data: dict, track: str = "se"):
         """
         Upload a proposal to Payload CMS with retry logic.
 
         Args:
             proposal_data: Dictionary containing proposal data
+            track: "se" (proposals) or "testing" (testing-proposals)
 
         Returns:
             Response JSON from Payload CMS
         """
         max_retries = 3
         retry_delay = 5
+        endpoint = self._proposals_endpoint(track)
 
         for attempt in range(max_retries):
             try:
-                print(f"Uploading proposal {proposal_data['proposal_id']} to Payload CMS (attempt {attempt + 1}/{max_retries})...")
+                print(f"Uploading {track} proposal {proposal_data['proposal_id']} to Payload CMS (attempt {attempt + 1}/{max_retries})...")
 
                 html_content = convert_markdown_to_html(proposal_data["content"])
 
@@ -587,7 +604,7 @@ class PayloadCMSManager:
                 }
 
                 response = requests.post(
-                    self.proposals_endpoint, headers=self.headers, json=payload_data
+                    endpoint, headers=self.headers, json=payload_data
                 )
 
                 if response.status_code >= 400:
@@ -611,13 +628,16 @@ class PayloadCMSManager:
                 print(traceback.format_exc())
                 raise
 
-    def upload_quiz_answers(self, answers_data: List['Answer']):
+    def upload_quiz_answers(self, answers_data: List['Answer'], track: str = "se"):
         """
-        Upload quiz answers to Payload CMS (quiz-answers collection).
+        Upload quiz answers to Payload CMS (quiz-answers / testing-quiz-answers collection).
 
         Args:
             answers_data: List of Answer objects
+            track: "se" (quiz-answers) or "testing" (testing-quiz-answers)
         """
+        endpoint = self._quiz_answers_endpoint(track)
+
         # Group answers by proposalId
         answers_by_proposal: Dict[str, list] = {}
         for answer in answers_data:
@@ -634,7 +654,7 @@ class PayloadCMSManager:
         page = 1
         while True:
             response = requests.get(
-                f"{self.quiz_answers_endpoint}?limit=100&page={page}", headers=self.headers
+                f"{endpoint}?limit=100&page={page}", headers=self.headers
             )
             response.raise_for_status()
             data = response.json()
@@ -655,20 +675,20 @@ class PayloadCMSManager:
                     # Update existing
                     doc_id = existing_answers[proposal_id]
                     response = requests.patch(
-                        f"{self.quiz_answers_endpoint}/{doc_id}",
+                        f"{endpoint}/{doc_id}",
                         headers=self.headers,
                         json=quiz_data,
                     )
                 else:
                     # Create new
                     response = requests.post(
-                        self.quiz_answers_endpoint, headers=self.headers, json=quiz_data
+                        endpoint, headers=self.headers, json=quiz_data
                     )
                 response.raise_for_status()
             except Exception as e:
-                print(f"Error uploading quiz answers for {proposal_id}: {str(e)}")
+                print(f"Error uploading {track} quiz answers for {proposal_id}: {str(e)}")
 
-        print(f"Uploaded quiz answers for {len(answers_by_proposal)} proposals to Payload CMS")
+        print(f"Uploaded {track} quiz answers for {len(answers_by_proposal)} proposals to Payload CMS")
 
 
 def collect_all_nouns(proposal_files: List[str]) -> Tuple[Set[str], Counter]:
@@ -714,7 +734,8 @@ def process_proposal_file(
     file_path: str,
     cms_manager,
     similarity_map: Dict[str, List[str]],
-    valid_ids: Set[str]
+    valid_ids: Set[str],
+    track: str = "se"
 ) -> List[Answer]:
     """
     Process a single proposal file.
@@ -724,6 +745,7 @@ def process_proposal_file(
         cms_manager: PayloadCMSManager instance
         similarity_map: Dictionary mapping words to similar words
         valid_ids: Set of all known proposal IDs (to validate references against)
+        track: "se" (Swift Evolution) or "testing" (Swift Testing)
 
     Returns:
         List of Answer objects
@@ -752,16 +774,17 @@ def process_proposal_file(
         }
 
         # Delete then re-create the proposal
-        cms_manager.delete_proposal(proposal_id)
-        result = cms_manager.upload_proposal(proposal_data)
-        print(f"Successfully uploaded proposal {proposal_id}")
+        cms_manager.delete_proposal(proposal_id, track=track)
+        result = cms_manager.upload_proposal(proposal_data, track=track)
+        print(f"Successfully uploaded {track} proposal {proposal_id}")
 
-        # Rebuild this proposal's outgoing dependency edges (idempotent: clear then create)
-        related = extract_related_proposals(post.content, proposal_id, valid_ids)
-        cms_manager.delete_references_from(proposal_id)
-        for to_id in related:
-            cms_manager.create_reference(proposal_id, to_id)
-        print(f"Rebuilt {len(related)} reference edges for proposal {proposal_id}")
+        # Dependency edges are Swift Evolution only (ST has no graph in v1)
+        if track == "se":
+            related = extract_related_proposals(post.content, proposal_id, valid_ids)
+            cms_manager.delete_references_from(proposal_id)
+            for to_id in related:
+                cms_manager.create_reference(proposal_id, to_id)
+            print(f"Rebuilt {len(related)} reference edges for proposal {proposal_id}")
 
     except Exception as e:
         print(f"Error processing {file_path}: {str(e)}")
@@ -782,35 +805,44 @@ def main():
         # Fetch all existing proposals
         cms_manager.fetch_all_proposals()
 
-        # Get all proposal files
-        proposal_files = sorted(list(glob.glob("proposals/*.md")))
-        print(f"Found {len(proposal_files)} proposal files to process")
+        # Get all proposal files.
+        # SE = proposals/*.md (non-recursive), ST = proposals/testing/*.md
+        se_files = sorted(list(glob.glob("proposals/*.md")))
+        testing_files = sorted(list(glob.glob("proposals/testing/*.md")))
+        all_files = se_files + testing_files
+        print(f"Found {len(se_files)} SE + {len(testing_files)} ST proposal files to process")
 
-        # Set of all known proposal IDs, used to validate extracted references
-        valid_ids = build_valid_proposal_ids(proposal_files)
+        # Valid IDs for reference validation (SE only; ST has no dependency graph in v1)
+        valid_ids = build_valid_proposal_ids(se_files)
 
-        # First pass: collect all nouns and build similarity map
-        all_nouns, all_word_freq_hists = collect_all_nouns(proposal_files)
+        # First pass: collect all nouns from every track (better quiz distractors for ST too)
+        all_nouns, all_word_freq_hists = collect_all_nouns(all_files)
 
         # Build the similarity map for all collected nouns
         print("Building similarity map for all nouns...")
         similarity_map = build_word_similarity_map(nlp, all_nouns)
         print(f"Finished building similarity map for {len(similarity_map)} words")
 
-        # Second pass: mask content and process documents
+        # Second pass: mask content and process documents, per track
         print("Processing all documents...")
-        all_answers = []
-
-        for file_path in proposal_files:
-            answers = process_proposal_file(file_path, cms_manager, similarity_map, valid_ids)
-            all_answers.extend(answers)
+        se_answers = []
+        for file_path in se_files:
+            se_answers.extend(
+                process_proposal_file(file_path, cms_manager, similarity_map, valid_ids, track="se")
+            )
+        testing_answers = []
+        for file_path in testing_files:
+            testing_answers.extend(
+                process_proposal_file(file_path, cms_manager, similarity_map, set(), track="testing")
+            )
 
         print("Generating word frequency histogram...")
         visualize_histogram_and_return_df(all_word_freq_hists, write_to_file=True)
 
-        # Upload quiz answers to Payload CMS
+        # Upload quiz answers to Payload CMS, per track
         print("Uploading quiz answers to Payload CMS...")
-        cms_manager.upload_quiz_answers(all_answers)
+        cms_manager.upload_quiz_answers(se_answers, track="se")
+        cms_manager.upload_quiz_answers(testing_answers, track="testing")
 
         print("Process completed successfully")
 
