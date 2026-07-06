@@ -132,7 +132,7 @@ The additions described in this proposal require a new version of the Swift stan
 This is an extension of an existing pattern. We are not considering a different pattern at this time.
 
 ### `extracting()` functions for `Slice` of unsafe buffers
-The proposal as accepted included extensions to `Slice` of the form `public func extracting(_ bounds: Range<Index>) -> Self`, returning a `Slice`. Additional experience since then has shown us that the `extracting` functions have not been needed in contexts involving slices: given a slice, we can easily use a rebasing initializer to obtain the base `UnsafeBufferPointer` type. Furthermore, returning a `Slice` would be incongruous for the `extracting` functions. Accordingly, we have decided to not implement them and remove them from the proposal. This can be revisited if further experience shows this to be the incorrect decision.
+The proposal as accepted included extensions to `Slice` where `Base` is from the `UnsafeBufferPointer` family, of the form `public func extracting(_ bounds: Range<Index>) -> Self`, returning a `Slice`. These `Slice` extensions have not been implemented, and so have been removed from the proposal. They can be proposed again at a later time if further experience indicates that they are highly desirable.
 
 ## Future directions
 ### Disambiguation over ownership type
