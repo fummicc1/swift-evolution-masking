@@ -5,7 +5,7 @@
 * Review Manager: TBD
 * Status: **Awaiting review**
 * Implementation: https://github.com/swiftlang/swift/pull/89740
-* Review: ([pitch](https://forums.swift.org/...))
+* Review: ([pitch](https://forums.swift.org/t/pitch-extending-section-to-functions/87174))
 
 ## Summary of changes
 
@@ -15,7 +15,7 @@ This proposal extends the `@section` attribute introduced in [SE-0492](https://g
 
 The `@section` attribute specifies where a particular entity will be placed in an object file. Particularly in embedded environments, linkers and other tools expect certain kinds of symbols to be in specific sections. SE-0492 introduced support for `@section` for global and static variables, but left functions to a future direction. However, functions also require this support. A prominent use case is firmware entry points and booting schemes, which often require startup code to be in a predefined section:
 
-```
+```swift
 // code for the function is placed into the custom section
 @section("__TEXT,boot")
 func firmwareBootEntrypoint() { ... }
@@ -25,13 +25,13 @@ This motivation was also [outlined in the Future Directions of SE-0492](https://
 
 ## Proposed solution
 
-Enable the `@section` attribute on all kinds of functions, including normal functions (`func`), initializers (`init`), deinitializers (`deinit`), closures, and accessors (`get`, `set`, etc.). Unlike with 
+Enable the `@section` attribute on all kinds of functions, including normal functions (`func`), initializers (`init`), deinitializers (`deinit`), closures, and accessors (`get`, `set`, etc.).
 
 ## Detailed design
 
-Functions always reside in a text section, so they have fewer limitations than The `@section` attribute can be applied to any kind of function. Some examples to show the syntax at various places:
+The `@section` attribute can be applied to any kind of function. Some examples to show the syntax at various places:
 
-```swif
+```swift
 @section("__TEXT,boot")
 func firmwareBootEntrypoint() { ... }
 
@@ -51,7 +51,7 @@ struct MyBootConfig: ~Copyable {
 }
 ```
 
-Unlike with `@section` on variables, there are no limitations on the use of `@section` for generic functions or functions within a generic context.
+Unlike with `@section` on variables, there are no limitations on the use of `@section` for generic functions or functions within a generic context, because all functions go into a text section. This also means that `@section` can be applied to instance functions of types.
 
 The `@section` attribute applies to the function and any related functions that the implementation produces for it. For example, when applied to an `async` function, each of the partial functions the implementation generates will respect the `@section` attribute. Similarly, when a `@section` attribute is applied to a generic function, it will also apply to any specialization of that generic function that is produced by the compiler, as well as the original generic definition. Finally, if the `main` function of a `@main` type has a `@section` attribute, the same section is used for the actual `main` entrypoints emitted by the compiler.
 
