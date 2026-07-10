@@ -1,9 +1,10 @@
 # Package Registry Search
 
-* Proposal: [SE-NNNN](NNNN-registry-search.md)
+* Proposal: [SE-0536](0536-registry-search.md)
 * Author: [Paul LeMarquand](https://github.com/plemarquand)
-* Review Manager: TDB
-* Status: **Awaiting review**
+* Review Manager: [Mikaela Caron](https://github.com/mikaelacaron)
+* Status: **Active review (July 10...July 24, 2026)**
+* Implementation: [swiftlang/swift-package-manager#8432](https://github.com/swiftlang/swift-package-manager/pull/8432)
 * Review: ([pitch](https://forums.swift.org/t/pitch-package-registry-search/86320))
 
 ## Introduction
