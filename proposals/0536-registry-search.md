@@ -5,7 +5,7 @@
 * Review Manager: [Mikaela Caron](https://github.com/mikaelacaron)
 * Status: **Active review (July 10...July 24, 2026)**
 * Implementation: [swiftlang/swift-package-manager#10125](https://github.com/swiftlang/swift-package-manager/pull/10125)
-* Review: ([pitch](https://forums.swift.org/t/pitch-package-registry-search/86320))
+* Review: ([pitch](https://forums.swift.org/t/pitch-package-registry-search/86320))([review](https://forums.swift.org/t/se-05-package-registry-search/88203))
 
 ## Introduction
 
