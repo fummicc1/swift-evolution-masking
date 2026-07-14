@@ -55,20 +55,24 @@ Unlike with `@section` on variables, there are no limitations on the use of `@se
 
 The `@section` attribute applies to the function and any related functions that the implementation produces for it. For example, when applied to an `async` function, each of the partial functions the implementation generates will respect the `@section` attribute. Similarly, when a `@section` attribute is applied to a generic function, it will also apply to any specialization of that generic function that is produced by the compiler, as well as the original generic definition. Finally, if the `main` function of a `@main` type has a `@section` attribute, the same section is used for the actual `main` entrypoints emitted by the compiler.
 
-### Inferring `@section` on accessors and closures
+### Inferring `@section` on accessors, closures, and local functions
 
 When `@section` isn't explicitly specified of an accessor or a closure, it can be inferred:
 
-* For a closure, `@section` will be inferred from its enclosing function, if it's inside a function.
+* For a closure or local function, `@section` will be inferred from its enclosing function (if there is one).
   ```swift
   @section("__TEXT,boot")
   func firmwareBootEntrypoint() {
+    func helper() { // infers @section("__TEXT,boot")
+  
+    }
+  
     registerCallback { // infers @section("__TEXT,boot")
       ...
     }
   }
   ```
-
+  
 * An accessor that provides read-only access (`get`, `borrow`, `yielding borrow`, etc.) that is synthesized by the implementation will infer `@section` from one of these accessors that was written explicitly.
 
 * An accessor that provides read-write or write access (`set`, `mutate`, `yielding mutate`, `init`, `didSet`, `willSet`) that is synthesized by the implementation will infer `@section` from one of these accessors that was written explicitly. For example:
@@ -82,7 +86,7 @@ When `@section` isn't explicitly specified of an accessor or a closure, it can b
     }
   ```
 
-Note that there is no inference of `@section` from a variable to its accessors, because code and data tend to be in different sections.
+Note that there is no inference of `@section` from a variable to its accessors, because code and data tend to be in different sections. Local types (and members thereof) also do not have sections inferred.
 
 ### Lifting restriction on didSet/willSet
 
