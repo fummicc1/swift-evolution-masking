@@ -1,9 +1,9 @@
 # Section Placement Control for Functions
 
-* Proposal: [SE-NNNN](NNNN-filename.md)
+* Proposal: [SE-0537](0537-function-sections.md)
 * Authors: [Doug Gregor](https://github.com/DougGregor)
-* Review Manager: TBD
-* Status: **Awaiting review**
+* Review Manager: [Becca Royal-Gordon](https://github.com/beccadax)
+* Status: **Active review (July 14...27, 2026)**
 * Implementation: https://github.com/swiftlang/swift/pull/89740
 * Review: ([pitch](https://forums.swift.org/t/pitch-extending-section-to-functions/87174))
 
