@@ -5,7 +5,7 @@
 * Review Manager: [Becca Royal-Gordon](https://github.com/beccadax)
 * Status: **Active review (July 14...27, 2026)**
 * Implementation: https://github.com/swiftlang/swift/pull/89740
-* Review: ([pitch](https://forums.swift.org/t/pitch-extending-section-to-functions/87174))
+* Review: ([pitch](https://forums.swift.org/t/pitch-extending-section-to-functions/87174)) ([review](https://forums.swift.org/t/se-0537-section-placement-control-for-functions/88298))
 
 ## Summary of changes
 
