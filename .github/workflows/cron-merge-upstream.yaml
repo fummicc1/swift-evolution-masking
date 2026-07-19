@@ -27,6 +27,9 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # .gitattributesの `.github/workflows/** merge=ours` を機能させるための
+          # カスタムマージドライバ定義（.gitattributesだけではドライバの実体は配布されない）
+          git config --global merge.ours.driver true
 
       - name: Add Upstream Remote
         run: |
