@@ -1,2 +1,6 @@
 *.md linguist-detectable=true
 *.md linguist-documentation=false
+
+# upstream(swiftlang/swift-evolution)マージ時、GITHUB_TOKENにworkflows権限が無くpushできないため、
+# .github/workflows配下は常にこちら側(ours)の内容を優先する
+.github/workflows/** merge=ours
