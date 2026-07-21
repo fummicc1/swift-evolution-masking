@@ -43,20 +43,58 @@ jobs:
         run: |
           git checkout main
           before=$(git rev-parse HEAD)
-          git merge upstream/main --no-edit
+
+          if ! git merge upstream/main --no-edit; then
+            if [ ! -f .git/MERGE_HEAD ]; then
+              echo "::error::git merge failed for a reason other than a content conflict"
+              exit 1
+            fi
+
+            # The default GITHUB_TOKEN cannot push changes to files under
+            # .github/workflows (it lacks the `workflows` permission). Conflicts
+            # there - including modify/delete conflicts, which the `merge=ours`
+            # gitattribute cannot resolve - are settled by keeping our pre-merge
+            # tree for that path. Anything conflicting outside .github/workflows
+            # is a real problem we must not silently paper over.
+            mapfile -t conflicted < <(git diff --name-only --diff-filter=U)
+            other_conflicts=()
+            for f in "${conflicted[@]}"; do
+              case "$f" in
+                .github/workflows/*) ;;
+                *) other_conflicts+=("$f") ;;
+              esac
+            done
+
+            if [ "${#other_conflicts[@]}" -gt 0 ]; then
+              echo "::error::Unresolved merge conflicts outside .github/workflows:"
+              printf '%s\n' "${other_conflicts[@]}"
+              exit 1
+            fi
+
+            for f in "${conflicted[@]}"; do
+              if git cat-file -e "$before:$f" 2>/dev/null; then
+                git show "$before:$f" > "$f"
+                git add -- "$f"
+              else
+                git rm -f -- "$f"
+              fi
+            done
+
+            git commit --no-edit
+          fi
+
           after=$(git rev-parse HEAD)
           if [ "$before" != "$after" ]; then
-            # The default GITHUB_TOKEN cannot push changes to files under
-            # .github/workflows (it lacks the `workflows` permission), so a
-            # merge that imports or modifies upstream workflow files would be
-            # rejected. We only care about upstream proposal content here, so
-            # restore our own workflow definitions before pushing.
+            # Even a clean (non-conflicting) merge can still bring in upstream
+            # changes under .github/workflows (e.g. newly added upstream workflow
+            # files, or edits git could auto-merge). Restore our own workflow
+            # definitions before pushing.
             if ! git diff --quiet "$before" "$after" -- .github/workflows; then
               # Reset .github/workflows entirely to its pre-merge state. A plain
               # `git checkout "$before" -- .github/workflows` only restores paths
               # that exist in $before, so newly added upstream workflow files
-              # (e.g. proposal_pull_request_swift.yml) would survive and still be
-              # pushed. Removing the tree first guarantees additions are dropped.
+              # would survive and still be pushed. Removing the tree first
+              # guarantees additions are dropped.
               git rm -r --quiet .github/workflows
               git checkout "$before" -- .github/workflows
               git commit --amend --no-edit
